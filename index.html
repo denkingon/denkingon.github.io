@@ -316,6 +316,18 @@
   var PHOTOS = [];
   var DEVICE_PHOTO = ""; // 振動デバイスの写真 (例: "img/device.jpg")
 
+  // キャッチコピー (HARAHARA / NUKUNUKU) を 0.1 秒ごとに切り替える端末内蔵フォント
+  var SHUFFLE_FONTS = [
+    '"Hiragino Mincho ProN", "Yu Mincho", "MS PMincho", serif',
+    '"Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif',
+    '"Courier New", "Osaka-Mono", "MS Gothic", monospace',
+    'Georgia, "Times New Roman", "Hiragino Mincho ProN", serif',
+    '"Arial Black", Impact, "Hiragino Sans", sans-serif',
+    '"Comic Sans MS", "Chalkboard SE", "Hiragino Maru Gothic ProN", cursive',
+    '"Brush Script MT", "Segoe Script", cursive',
+    'Futura, "Trebuchet MS", Verdana, sans-serif'
+  ];
+
   var target = new Date("2026-08-17T23:59:00+09:00").getTime();
   var cd = document.getElementById("countdown");
   var site = document.getElementById("site");
@@ -385,6 +397,24 @@
     document.querySelectorAll(".rev").forEach(function (el) { obs.observe(el); });
   }
 
+  // HARAHARA / NUKUNUKU にそれぞれ独立したフォントを 0.1 秒ごとに当てる
+  function startFontShuffle() {
+    var bigs = catchEl.querySelectorAll(".big");
+    var current = [];
+    function roll(idx) {
+      var next;
+      do {
+        next = Math.floor(Math.random() * SHUFFLE_FONTS.length);
+      } while (next === current[idx]);
+      current[idx] = next;
+      bigs[idx].style.fontFamily = SHUFFLE_FONTS[next];
+    }
+    var fs = setInterval(function () {
+      for (var i = 0; i < bigs.length; i++) roll(i);
+    }, 100);
+    introTimers.push(fs);
+  }
+
   function endIntro(fast) {
     introTimers.forEach(clearTimeout);
     intro.classList.add("out");
@@ -412,6 +442,7 @@
         clearInterval(iv);
         flash.hidden = true;
         catchEl.classList.add("show");
+        startFontShuffle();
         introTimers.push(setTimeout(function () { endIntro(); }, 1700));
       }
     }, 95);
