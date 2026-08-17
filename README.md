@@ -1,6 +1,6 @@
-# denkingon — portfolio
+# 村田亮 — portfolio
 
-denkingon のポートフォリオサイト。
+村田亮 (denkingon) のポートフォリオサイト。
 
 - 公開URL: https://denkingon.github.io/
 - `index.html` — サイト本体(現在は準備中ページ)

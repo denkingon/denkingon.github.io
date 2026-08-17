@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>denkingon</title>
-<meta name="description" content="denkingon のポートフォリオ。作品は近日ここに並びます。">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='8' y='8' width='84' height='84' rx='14' fill='%238b4a38'/%3E%3Ctext x='50' y='68' font-size='52' font-family='serif' fill='%23f5efe1' text-anchor='middle'%3Ed%3C/text%3E%3C/svg%3E">
+<title>村田亮</title>
+<meta name="description" content="村田亮のポートフォリオ。2026.8.17 23:59 公開。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='8' y='8' width='84' height='84' rx='14' fill='%238b4a38'/%3E%3Ctext x='50' y='72' font-size='58' font-family='serif' fill='%23f5efe1' text-anchor='middle'%3E亮%3C/text%3E%3C/svg%3E">
 <style>
   :root {
     --bg:         #f5efe1;   /* kozo — 楮和紙 */
@@ -16,6 +16,8 @@
     --border:     #e6dfce;   /* asahaku */
     --accent:     #8b4a38;   /* bengara */
     --seal-ink:   #f5efe1;
+    --font-gothic: "游ゴシック体", "YuGothic", "游ゴシック", "Yu Gothic Medium", "Yu Gothic",
+                   "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -31,25 +33,60 @@
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  [hidden] { display: none !important; }
 
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif;
+    font-family: var(--font-gothic);
+    font-weight: 500;   /* Windowsの游ゴシックが細く出過ぎるのを防ぐ */
     min-height: 100dvh;
     display: grid;
     place-items: center;
     padding: 2rem 1.5rem;
   }
 
-  main {
+  /* ---- カウントダウン (23:59 JST まではこれだけを表示) ---- */
+  #countdown .cd-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.6rem;
+    text-align: center;
+  }
+  .eyebrow {
+    font-size: 0.72rem;
+    letter-spacing: 0.22em;
+    color: var(--text-faint);
+    text-transform: uppercase;
+  }
+  .timer {
+    font-size: clamp(4rem, 17vw, 9.5rem);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .timer .colon { color: var(--accent); }
+  @media (prefers-reduced-motion: no-preference) {
+    .timer .colon { animation: blink 2s steps(2, jump-none) infinite; }
+    @keyframes blink { 50% { opacity: 0.25; } }
+  }
+  .cd-meta { font-size: 0.95rem; color: var(--text-soft); }
+  .cd-name {
+    font-size: 0.78rem;
+    letter-spacing: 0.14em;
+    color: var(--text-faint);
+  }
+
+  /* ---- サイト本体 (公開時刻を過ぎたら自動でこちらに切替) ---- */
+  #site {
     max-width: 34rem;
     width: 100%;
     display: flex;
     flex-direction: column;
     gap: 2.2rem;
   }
-
   .seal {
     width: 3rem;
     height: 3rem;
@@ -58,43 +95,26 @@
     color: var(--seal-ink);
     display: grid;
     place-items: center;
-    font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
-    font-size: 1.6rem;
-    font-weight: 600;
+    font-size: 1.5rem;
+    font-weight: 700;
     transform: rotate(-3deg);
     user-select: none;
   }
-
-  header { display: flex; flex-direction: column; gap: 1.1rem; }
-
-  .eyebrow {
-    font-size: 0.72rem;
-    letter-spacing: 0.22em;
-    color: var(--text-faint);
-    text-transform: uppercase;
-  }
-
+  #site header { display: flex; flex-direction: column; gap: 1.1rem; }
   h1 {
-    font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
     font-size: clamp(2.5rem, 8vw, 3.5rem);
-    font-weight: 600;
-    letter-spacing: 0.01em;
+    font-weight: 700;
+    letter-spacing: 0.04em;
     text-wrap: balance;
     line-height: 1.2;
   }
-
   .lede {
     font-size: 0.95rem;
     line-height: 2;
     color: var(--text-soft);
     max-width: 30rem;
   }
-
-  hr {
-    border: none;
-    border-top: 1px solid var(--border);
-  }
-
+  hr { border: none; border-top: 1px solid var(--border); }
   footer {
     display: flex;
     align-items: baseline;
@@ -103,7 +123,6 @@
     font-size: 0.78rem;
     color: var(--text-faint);
   }
-
   footer a {
     color: var(--text-soft);
     text-decoration: none;
@@ -118,7 +137,7 @@
   footer a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
   @media (prefers-reduced-motion: no-preference) {
-    main {
+    #countdown .cd-inner, #site {
       animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) both;
     }
     @keyframes rise {
@@ -127,20 +146,58 @@
     }
   }
 </style>
+<noscript><style>#countdown { display: none; } #site { display: flex !important; }</style></noscript>
 </head>
 <body>
-<main>
-  <div class="seal" aria-hidden="true">d</div>
+
+<main id="countdown">
+  <div class="cd-inner">
+    <p class="eyebrow">Coming Soon</p>
+    <p class="timer"><span id="t-h">--</span><span class="colon">:</span><span id="t-m">--</span><span class="colon">:</span><span id="t-s">--</span></p>
+    <p class="cd-meta">2026.8.17 23:59 に公開</p>
+    <p class="cd-name">村田亮</p>
+  </div>
+</main>
+
+<main id="site" hidden>
+  <div class="seal" aria-hidden="true">亮</div>
   <header>
     <p class="eyebrow">Portfolio</p>
-    <h1>denkingon</h1>
+    <h1>村田亮</h1>
   </header>
   <p class="lede">ポートフォリオサイトを準備中です。作品とプロジェクトは、近日このページに並びます。URLはこのまま変わりません。</p>
   <hr>
   <footer>
-    <span>© 2026 denkingon</span>
+    <span>© 2026 村田亮</span>
     <a href="https://github.com/denkingon">GitHub</a>
   </footer>
 </main>
+
+<script>
+(function () {
+  var target = new Date("2026-08-17T23:59:00+09:00").getTime();
+  var cd = document.getElementById("countdown");
+  var site = document.getElementById("site");
+  var eh = document.getElementById("t-h");
+  var em = document.getElementById("t-m");
+  var es = document.getElementById("t-s");
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function tick() {
+    var diff = target - Date.now();
+    if (diff <= 0) {
+      cd.hidden = true;
+      site.hidden = false;
+      clearInterval(iv);
+      return;
+    }
+    eh.textContent = pad(Math.floor(diff / 3600000));
+    em.textContent = pad(Math.floor(diff % 3600000 / 60000));
+    es.textContent = pad(Math.floor(diff % 60000 / 1000));
+  }
+  var iv = setInterval(tick, 250);
+  tick();
+})();
+</script>
+
 </body>
 </html>
