@@ -4,9 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>村田亮</title>
-<meta name="description" content="村田亮のポートフォリオ。2026.8.17 23:59 公開。">
+<meta name="description" content="ハラハラしたあと、ヌクヌクしようぜ。村田亮のポートフォリオ。">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='8' y='8' width='84' height='84' rx='14' fill='%238b4a38'/%3E%3Ctext x='50' y='72' font-size='58' font-family='serif' fill='%23f5efe1' text-anchor='middle'%3E亮%3C/text%3E%3C/svg%3E">
 <style>
+  /* ============ ヌクヌク側 (和紙・地のトーン) ============ */
   :root {
     --bg:         #f5efe1;   /* kozo — 楮和紙 */
     --bg-elev:    #fbf6ea;   /* gampi */
@@ -16,140 +17,199 @@
     --border:     #e6dfce;   /* asahaku */
     --accent:     #8b4a38;   /* bengara */
     --seal-ink:   #f5efe1;
+    /* ハラハラ側 (闇のトーン) */
+    --dark-bg:    #1a1612;
+    --dark-text:  #e8dfd0;
+    --dark-soft:  #9a948a;
+    --dark-accent:#b06850;
     --font-gothic: "游ゴシック体", "YuGothic", "游ゴシック", "Yu Gothic Medium", "Yu Gothic",
                    "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg:         #1a1612;   /* sumi */
-      --bg-elev:    #221d18;   /* kuro-cha */
-      --text:       #e8dfd0;   /* washi-aka */
-      --text-soft:  #9a948a;   /* senbi */
-      --text-faint: #6a6258;   /* asagiri */
-      --border:     #3a342c;   /* kasumi */
-      --accent:     #b06850;   /* bengara (明) */
-      --seal-ink:   #1a1612;
-    }
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
   [hidden] { display: none !important; }
+  img { max-width: 100%; display: block; }
 
   body {
     background: var(--bg);
     color: var(--text);
     font-family: var(--font-gothic);
-    font-weight: 500;   /* Windowsの游ゴシックが細く出過ぎるのを防ぐ */
+    font-weight: 500;
     min-height: 100dvh;
-    display: grid;
-    place-items: center;
-    padding: 2rem 1.5rem;
   }
+  body.lock { overflow: hidden; }
 
-  /* ---- カウントダウン (23:59 JST まではこれだけを表示) ---- */
-  #countdown .cd-inner {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 1.6rem;
-    text-align: center;
-  }
   .eyebrow {
     font-size: 0.72rem;
     letter-spacing: 0.22em;
     color: var(--text-faint);
     text-transform: uppercase;
   }
+
+  /* ============ カウントダウン (23:59 までの闇・ハラハラ) ============ */
+  #countdown {
+    position: fixed; inset: 0; z-index: 50;
+    background: var(--dark-bg);
+    color: var(--dark-text);
+    display: grid; place-items: center;
+    padding: 2rem 1.5rem;
+  }
+  #countdown .cd-inner {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 1.6rem; text-align: center;
+  }
+  #countdown .eyebrow { color: var(--dark-soft); }
   .timer {
     font-size: clamp(4rem, 17vw, 9.5rem);
-    font-weight: 700;
-    line-height: 1;
-    letter-spacing: 0.02em;
+    font-weight: 700; line-height: 1; letter-spacing: 0.02em;
     font-variant-numeric: tabular-nums;
   }
-  .timer .colon { color: var(--accent); }
+  .timer .colon { color: var(--dark-accent); }
   @media (prefers-reduced-motion: no-preference) {
     .timer .colon { animation: blink 2s steps(2, jump-none) infinite; }
     @keyframes blink { 50% { opacity: 0.25; } }
   }
-  .cd-meta { font-size: 0.95rem; color: var(--text-soft); }
-  .cd-name {
-    font-size: 0.78rem;
-    letter-spacing: 0.14em;
-    color: var(--text-faint);
+  .cd-meta { font-size: 0.95rem; color: var(--dark-soft); }
+  .cd-name { font-size: 0.78rem; letter-spacing: 0.14em; color: var(--dark-soft); }
+
+  /* ============ イントロ (写真フラッシュ → キャッチフレーズ) ============ */
+  #intro {
+    position: fixed; inset: 0; z-index: 60;
+    background: var(--dark-bg);
+    display: grid; place-items: center;
+    overflow: hidden;
+    transition: transform 0.6s cubic-bezier(0.7, 0, 0.3, 1), opacity 0.6s;
+  }
+  #intro.out { transform: translateY(-100%); opacity: 0.4; }
+  .flash-item {
+    position: absolute; inset: 0;
+    display: none;
+    place-items: center;
+  }
+  .flash-item.on { display: grid; }
+  .flash-item span {
+    font-size: clamp(8rem, 60vw, 20rem);
+    font-weight: 700; line-height: 1;
+  }
+  .flash-item img {
+    width: 100%; height: 100%; object-fit: cover;
+  }
+  .catch {
+    position: relative; z-index: 2;
+    display: none;
+    flex-direction: column; gap: 0.4rem;
+    padding: 0 1.5rem;
+    color: var(--dark-text);
+    font-weight: 700;
+    line-height: 1.15;
+    text-align: left;
+  }
+  .catch.show { display: flex; }
+  .catch .l { font-size: clamp(1.15rem, 5.6vw, 2rem); }
+  .catch .big {
+    display: block;
+    font-size: clamp(3rem, 15.5vw, 5.5rem);
+    letter-spacing: -0.02em;
+  }
+  .catch .hh { color: var(--dark-accent); }
+  .catch .nn { color: var(--dark-text); }
+  .catch .l2 { align-self: flex-end; text-align: right; }
+  @media (prefers-reduced-motion: no-preference) {
+    .catch.show { animation: slam 0.18s cubic-bezier(0.1, 0.8, 0.2, 1) both; }
+    @keyframes slam {
+      from { transform: scale(1.25); opacity: 0; }
+      to   { transform: scale(1); opacity: 1; }
+    }
   }
 
-  /* ---- サイト本体 (公開時刻を過ぎたら自動でこちらに切替) ---- */
+  /* ============ サイト本体 (ヌクヌク) ============ */
   #site {
     max-width: 34rem;
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: 2.2rem;
+    margin: 0 auto;
+    padding: 4.5rem 1.5rem 3rem;
+    display: flex; flex-direction: column; gap: 3.2rem;
   }
   .seal {
-    width: 3rem;
-    height: 3rem;
-    border-radius: 0.55rem;
-    background: var(--accent);
-    color: var(--seal-ink);
-    display: grid;
-    place-items: center;
-    font-size: 1.5rem;
-    font-weight: 700;
-    transform: rotate(-3deg);
-    user-select: none;
+    width: 3rem; height: 3rem; border-radius: 0.55rem;
+    background: var(--accent); color: var(--seal-ink);
+    display: grid; place-items: center;
+    font-size: 1.5rem; font-weight: 700;
+    transform: rotate(-3deg); user-select: none;
   }
-  #site header { display: flex; flex-direction: column; gap: 1.1rem; }
+  #site .head { display: flex; flex-direction: column; gap: 1.1rem; }
   h1 {
-    font-size: clamp(2.5rem, 8vw, 3.5rem);
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-wrap: balance;
-    line-height: 1.2;
+    font-size: clamp(2.5rem, 11vw, 3.2rem);
+    font-weight: 700; letter-spacing: 0.04em; line-height: 1.2;
   }
+  .who { font-size: 0.85rem; color: var(--text-soft); line-height: 1.9; }
   .lede {
-    font-size: 0.95rem;
-    line-height: 2;
-    color: var(--text-soft);
-    max-width: 30rem;
+    font-size: 1.05rem; font-weight: 700; line-height: 2;
   }
-  hr { border: none; border-top: 1px solid var(--border); }
+  .lede small { display: block; font-size: 0.85rem; font-weight: 500; color: var(--text-soft); margin-top: 0.5rem; }
+
+  section { display: flex; flex-direction: column; gap: 1.6rem; }
+  .works { list-style: none; display: flex; flex-direction: column; }
+  .works li {
+    display: flex; gap: 1rem;
+    padding: 1.3rem 0;
+    border-top: 1px solid var(--border);
+  }
+  .works li:last-child { border-bottom: 1px solid var(--border); }
+  .num {
+    font-size: 0.72rem; font-weight: 700; color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    padding-top: 0.25rem; min-width: 1.6rem;
+  }
+  .works h2 { font-size: 1.05rem; font-weight: 700; line-height: 1.5; }
+  .works p { font-size: 0.88rem; color: var(--text-soft); line-height: 1.9; margin-top: 0.35rem; }
+  .work-photo {
+    margin-top: 0.9rem; border-radius: 0.4rem; overflow: hidden;
+    aspect-ratio: 4 / 3; background: var(--bg-elev);
+    border: 1px solid var(--border);
+    display: grid; place-items: center;
+  }
+  .ph-glyph { font-size: 3rem; color: var(--border); font-weight: 700; }
+
+  .strip {
+    display: flex; gap: 0.75rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    margin: 0 -1.5rem; padding: 0 1.5rem 0.5rem;
+    -webkit-overflow-scrolling: touch;
+  }
+  .strip .shot {
+    flex: 0 0 auto;
+    width: 16rem; aspect-ratio: 3 / 4;
+    scroll-snap-align: center;
+    border-radius: 0.4rem; overflow: hidden;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    display: grid; place-items: center;
+  }
+  .strip img { width: 100%; height: 100%; object-fit: cover; }
+
   footer {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 1rem;
-    font-size: 0.78rem;
-    color: var(--text-faint);
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 1rem; font-size: 0.78rem; color: var(--text-faint);
+    border-top: 1px solid var(--border); padding-top: 1.4rem;
   }
   footer a {
-    color: var(--text-soft);
-    text-decoration: none;
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 0.1em;
-    transition: color 0.2s, border-color 0.2s;
-  }
-  footer a:hover, footer a:focus-visible {
-    color: var(--accent);
-    border-color: var(--accent);
+    color: var(--text-soft); text-decoration: none;
+    border-bottom: 1px solid var(--border); padding-bottom: 0.1em;
   }
   footer a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
-  @media (prefers-reduced-motion: no-preference) {
-    #countdown .cd-inner, #site {
-      animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) both;
-    }
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(0.6rem); }
-      to   { opacity: 1; transform: none; }
-    }
+  /* スクロール出現 */
+  .rev { opacity: 0; transform: translateY(14px); transition: opacity 0.6s, transform 0.6s; }
+  .rev.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .rev { opacity: 1; transform: none; transition: none; }
   }
 </style>
-<noscript><style>#countdown { display: none; } #site { display: flex !important; }</style></noscript>
+<noscript><style>#countdown, #intro { display: none !important; } #site { display: flex !important; }</style></noscript>
 </head>
 <body>
 
+<!-- 23:59 JST までの闇 -->
 <main id="countdown">
   <div class="cd-inner">
     <p class="eyebrow">Coming Soon</p>
@@ -159,15 +219,89 @@
   </div>
 </main>
 
+<!-- イントロ: 写真フラッシュ → キャッチフレーズ (タップでスキップ) -->
+<div id="intro" hidden aria-hidden="true">
+  <div class="flash" id="flash">
+    <div class="flash-item on"><span style="color:#b06850">亮</span></div>
+    <div class="flash-item" style="background:#8b4a38"><span style="color:#f5efe1">村</span></div>
+    <div class="flash-item" style="background:#f5efe1"><span style="color:#1a1612">ハ</span></div>
+    <div class="flash-item"><span style="color:#e8dfd0">田</span></div>
+    <div class="flash-item" style="background:#2c2620"><span style="color:#b06850">ラ</span></div>
+    <div class="flash-item" style="background:#f5efe1"><span style="color:#8b4a38">ヌ</span></div>
+    <div class="flash-item"><span style="color:#9a948a">湘</span></div>
+    <div class="flash-item" style="background:#8b4a38"><span style="color:#1a1612">ク</span></div>
+  </div>
+  <div class="catch" id="catch">
+    <p class="l"><span class="big hh">HARAHARA</span>したあと、</p>
+    <p class="l l2"><span class="big nn">NUKUNUKU</span>しようぜ</p>
+  </div>
+</div>
+
+<!-- 本体: ヌクヌク -->
 <main id="site" hidden>
-  <div class="seal" aria-hidden="true">亮</div>
-  <header>
-    <p class="eyebrow">Portfolio</p>
+  <div class="head rev">
+    <div class="seal" aria-hidden="true">亮</div>
+    <p class="eyebrow">Content Designer</p>
     <h1>村田亮</h1>
-  </header>
-  <p class="lede">ポートフォリオサイトを準備中です。作品とプロジェクトは、近日このページに並びます。URLはこのまま変わりません。</p>
-  <hr>
-  <footer>
+    <p class="who">慶應義塾大学 SFC 在学。<br>ハラハラする方へ行って、ヌクヌクできる場を作る人。</p>
+  </div>
+
+  <p class="lede rev">ハラハラしたあと、ヌクヌクしようぜ。<small>作ったもの・やってきたことを、ここに置いていく。</small></p>
+
+  <section class="rev">
+    <p class="eyebrow">Doings</p>
+    <ol class="works">
+      <li class="rev">
+        <span class="num">01</span>
+        <div>
+          <h2>暗闇研究会</h2>
+          <p>発起人。暗闇をおもしろがる研究会を、いま自分の手で立ち上げて動かしている。</p>
+        </div>
+      </li>
+      <li class="rev">
+        <span class="num">02</span>
+        <div>
+          <h2>学生寮 ハウスリーダー</h2>
+          <p>寮の学びの場「ドミトリースタディ」を回している。人が集まって何かが始まる瞬間の現場担当。</p>
+        </div>
+      </li>
+      <li class="rev">
+        <span class="num">03</span>
+        <div>
+          <h2>振動するデバイス</h2>
+          <p>電子工作。手の中でふるえる装置を作った。</p>
+          <div class="work-photo" id="photo-device"><span class="ph-glyph">亮</span></div>
+        </div>
+      </li>
+      <li class="rev">
+        <span class="num">04</span>
+        <div>
+          <h2>キーボードと手書きのあいだ</h2>
+          <p>研究会で考えつづけているテーマ。書くことと打つことの間に何が落ちているのか。</p>
+        </div>
+      </li>
+      <li class="rev">
+        <span class="num">05</span>
+        <div>
+          <h2>英語スピーチコンテスト(高1)</h2>
+          <p>カンペ持参でギリギリ参加賞。図書カード500円を獲得した。ハラハラの原体験。</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section class="rev">
+    <p class="eyebrow">Photographs</p>
+    <div class="strip" id="strip">
+      <div class="shot"><span class="ph-glyph">一</span></div>
+      <div class="shot"><span class="ph-glyph">二</span></div>
+      <div class="shot"><span class="ph-glyph">三</span></div>
+      <div class="shot"><span class="ph-glyph">四</span></div>
+      <div class="shot"><span class="ph-glyph">五</span></div>
+    </div>
+  </section>
+
+  <footer class="rev">
     <span>© 2026 村田亮</span>
     <a href="https://github.com/denkingon">GitHub</a>
   </footer>
@@ -178,24 +312,80 @@
   var target = new Date("2026-08-17T23:59:00+09:00").getTime();
   var cd = document.getElementById("countdown");
   var site = document.getElementById("site");
+  var intro = document.getElementById("intro");
+  var flash = document.getElementById("flash");
+  var catchEl = document.getElementById("catch");
   var eh = document.getElementById("t-h");
   var em = document.getElementById("t-m");
   var es = document.getElementById("t-s");
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var introTimers = [];
+  var opened = false;
+
   function pad(n) { return (n < 10 ? "0" : "") + n; }
-  function tick() {
-    var diff = target - Date.now();
-    if (diff <= 0) {
-      cd.hidden = true;
-      site.hidden = false;
-      clearInterval(iv);
+
+  function reveal() {
+    var obs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add("in"); obs.unobserve(e.target); }
+      });
+    }, { threshold: 0.12 });
+    document.querySelectorAll(".rev").forEach(function (el) { obs.observe(el); });
+  }
+
+  function endIntro(fast) {
+    introTimers.forEach(clearTimeout);
+    intro.classList.add("out");
+    document.body.classList.remove("lock");
+    setTimeout(function () { intro.hidden = true; }, fast ? 0 : 650);
+  }
+
+  function playIntro() {
+    intro.hidden = false;
+    document.body.classList.add("lock");
+    intro.addEventListener("click", function () { endIntro(true); }, { once: true });
+    if (reduced) {
+      catchEl.classList.add("show");
+      flash.hidden = true;
+      introTimers.push(setTimeout(function () { endIntro(); }, 1600));
       return;
     }
+    var items = flash.children;
+    var i = 0, steps = 0, MAX = 16;
+    var iv = setInterval(function () {
+      items[i].classList.remove("on");
+      i = (i + 1) % items.length;
+      items[i].classList.add("on");
+      if (++steps >= MAX) {
+        clearInterval(iv);
+        flash.hidden = true;
+        catchEl.classList.add("show");
+        introTimers.push(setTimeout(function () { endIntro(); }, 1700));
+      }
+    }, 95);
+    introTimers.push(iv);
+  }
+
+  function open() {
+    if (opened) return;
+    opened = true;
+    cd.hidden = true;
+    site.hidden = false;
+    reveal();
+    playIntro();
+  }
+
+  function tick() {
+    var diff = target - Date.now();
+    if (diff <= 0) { clearInterval(iv); open(); return; }
     eh.textContent = pad(Math.floor(diff / 3600000));
     em.textContent = pad(Math.floor(diff % 3600000 / 60000));
     es.textContent = pad(Math.floor(diff % 60000 / 1000));
   }
   var iv = setInterval(tick, 250);
   tick();
+
+  window.__open = open; // 動作検証用
 })();
 </script>
 
