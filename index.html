@@ -168,6 +168,7 @@
     border: 1px solid var(--border);
     display: grid; place-items: center;
   }
+  .work-photo img { width: 100%; height: 100%; object-fit: cover; }
   .ph-glyph { font-size: 3rem; color: var(--border); font-weight: 700; }
 
   .strip {
@@ -309,6 +310,11 @@
 
 <script>
 (function () {
+  // ==== 写真設定: ここに入れるだけで全部に反映される ====
+  // 最初の12枚まではイントロのフラッシュに、全部がPHOTOGRAPHSのストリップに入る
+  var PHOTOS = [];
+  var DEVICE_PHOTO = ""; // 振動デバイスの写真 (例: "img/device.jpg")
+
   var target = new Date("2026-08-17T23:59:00+09:00").getTime();
   var cd = document.getElementById("countdown");
   var site = document.getElementById("site");
@@ -323,6 +329,51 @@
   var opened = false;
 
   function pad(n) { return (n < 10 ? "0" : "") + n; }
+
+  // 写真があればフラッシュを画像連写に差し替える(カウントダウン中に先読みされる)
+  function buildFlash() {
+    if (PHOTOS.length < 4) return;
+    flash.innerHTML = "";
+    PHOTOS.slice(0, 12).forEach(function (src, idx) {
+      var d = document.createElement("div");
+      d.className = "flash-item" + (idx === 0 ? " on" : "");
+      var img = document.createElement("img");
+      img.src = src;
+      img.alt = "";
+      d.appendChild(img);
+      flash.appendChild(d);
+    });
+  }
+
+  function buildStrip() {
+    if (!PHOTOS.length) return;
+    var strip = document.getElementById("strip");
+    strip.innerHTML = "";
+    PHOTOS.forEach(function (src) {
+      var d = document.createElement("div");
+      d.className = "shot";
+      var img = document.createElement("img");
+      img.src = src;
+      img.alt = "";
+      img.loading = "lazy";
+      d.appendChild(img);
+      strip.appendChild(d);
+    });
+  }
+
+  function buildDevicePhoto() {
+    if (!DEVICE_PHOTO) return;
+    var dp = document.getElementById("photo-device");
+    dp.innerHTML = "";
+    var img = document.createElement("img");
+    img.src = DEVICE_PHOTO;
+    img.alt = "振動するデバイス";
+    dp.appendChild(img);
+  }
+
+  buildFlash();
+  buildStrip();
+  buildDevicePhoto();
 
   function reveal() {
     var obs = new IntersectionObserver(function (entries) {
