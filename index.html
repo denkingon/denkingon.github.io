@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>村田亮</title>
 <meta name="description" content="ハラハラしたあと、ヌクヌクしようぜ。村田亮のポートフォリオ。">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='8' y='8' width='84' height='84' rx='14' fill='%238b4a38'/%3E%3Ctext x='50' y='72' font-size='58' font-family='serif' fill='%23f5efe1' text-anchor='middle'%3E亮%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='8' y='8' width='84' height='84' rx='14' fill='%238b4a38'/%3E%3C/svg%3E">
 <style>
   /* ============ ヌクヌク側 (和紙・地のトーン) ============ */
   :root {
@@ -129,13 +129,6 @@
     padding: 4.5rem 1.5rem 3rem;
     display: flex; flex-direction: column; gap: 3.2rem;
   }
-  .seal {
-    width: 3rem; height: 3rem; border-radius: 0.55rem;
-    background: var(--accent); color: var(--seal-ink);
-    display: grid; place-items: center;
-    font-size: 1.5rem; font-weight: 700;
-    transform: rotate(-3deg); user-select: none;
-  }
   #site .head { display: flex; flex-direction: column; gap: 1.1rem; }
   h1 {
     font-size: clamp(2.5rem, 11vw, 3.2rem);
@@ -224,7 +217,7 @@
 <!-- イントロ: 写真フラッシュ → キャッチフレーズ (タップでスキップ) -->
 <div id="intro" hidden aria-hidden="true">
   <div class="flash" id="flash">
-    <div class="flash-item on"><span style="color:#b06850">亮</span></div>
+    <div class="flash-item on"><span style="color:#b06850">H</span></div>
     <div class="flash-item" style="background:#8b4a38"><span style="color:#f5efe1">村</span></div>
     <div class="flash-item" style="background:#f5efe1"><span style="color:#1a1612">ハ</span></div>
     <div class="flash-item"><span style="color:#e8dfd0">田</span></div>
@@ -242,10 +235,9 @@
 <!-- 本体: ヌクヌク -->
 <main id="site" hidden>
   <div class="head rev">
-    <div class="seal" aria-hidden="true">亮</div>
     <p class="eyebrow">Content Designer</p>
     <h1>村田亮 <span class="sam">SAM</span></h1>
-    <p class="who">慶應義塾大学 SFC 在学。<br>ハラハラする方へ行って、ヌクヌクできる場を作る人。</p>
+    <p class="who">慶應義塾大学 SFC 在学。</p>
   </div>
 
   <p class="lede rev">ハラハラしたあと、ヌクヌクしようぜ。<small>作ったもの・やってきたことを、ここに置いていく。</small></p>
@@ -257,36 +249,35 @@
         <span class="num">01</span>
         <div>
           <h2>暗闇研究会</h2>
-          <p>発起人。暗闇をおもしろがる研究会を、いま自分の手で立ち上げて動かしている。</p>
+          <p>いま自分で立ち上げた研究会。</p>
         </div>
       </li>
       <li class="rev">
         <span class="num">02</span>
         <div>
           <h2>学生寮 ハウスリーダー</h2>
-          <p>寮の学びの場「ドミトリースタディ」を回している。人が集まって何かが始まる瞬間の現場担当。</p>
         </div>
       </li>
       <li class="rev">
         <span class="num">03</span>
         <div>
           <h2>振動するデバイス</h2>
-          <p>電子工作。手の中でふるえる装置を作った。</p>
-          <div class="work-photo" id="photo-device"><span class="ph-glyph">亮</span></div>
+          <p>電子工作で、振動するデバイスを作った。</p>
+          <div class="work-photo" id="photo-device"></div>
         </div>
       </li>
       <li class="rev">
         <span class="num">04</span>
         <div>
           <h2>キーボードと手書きのあいだ</h2>
-          <p>研究会で考えつづけているテーマ。書くことと打つことの間に何が落ちているのか。</p>
+          <p>中沢大越研で、キーボードと手書きのあいだについて考えた。</p>
         </div>
       </li>
       <li class="rev">
         <span class="num">05</span>
         <div>
           <h2>英語スピーチコンテスト(高1)</h2>
-          <p>カンペ持参でギリギリ参加賞。図書カード500円を獲得した。ハラハラの原体験。</p>
+          <p>カンペ持参でギリギリ参加賞。図書カード500円を獲得した。</p>
         </div>
       </li>
     </ol>
