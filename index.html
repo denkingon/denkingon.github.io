@@ -300,24 +300,13 @@
   </footer>
 </main>
 
+<script src="assets/font-shuffle.js"></script>
 <script>
 (function () {
   // ==== 写真設定: ここに入れるだけで全部に反映される ====
   // 最初の12枚まではイントロのフラッシュに、全部がPHOTOGRAPHSのストリップに入る
   var PHOTOS = [];
   var DEVICE_PHOTO = ""; // 振動デバイスの写真 (例: "img/device.jpg")
-
-  // キャッチコピー (HARAHARA / NUKUNUKU) を 0.1 秒ごとに切り替える端末内蔵フォント
-  var SHUFFLE_FONTS = [
-    '"Hiragino Mincho ProN", "Yu Mincho", "MS PMincho", serif',
-    '"Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif',
-    '"Courier New", "Osaka-Mono", "MS Gothic", monospace',
-    'Georgia, "Times New Roman", "Hiragino Mincho ProN", serif',
-    '"Arial Black", Impact, "Hiragino Sans", sans-serif',
-    '"Comic Sans MS", "Chalkboard SE", "Hiragino Maru Gothic ProN", cursive',
-    '"Brush Script MT", "Segoe Script", cursive',
-    'Futura, "Trebuchet MS", Verdana, sans-serif'
-  ];
 
   var target = new Date("2026-08-17T23:59:00+09:00").getTime();
   var cd = document.getElementById("countdown");
@@ -330,6 +319,7 @@
   var es = document.getElementById("t-s");
   var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var introTimers = [];
+  var shuffleCtl = null;
   var opened = false;
 
   function pad(n) { return (n < 10 ? "0" : "") + n; }
@@ -388,26 +378,9 @@
     document.querySelectorAll(".rev").forEach(function (el) { obs.observe(el); });
   }
 
-  // HARAHARA / NUKUNUKU にそれぞれ独立したフォントを 0.1 秒ごとに当てる
-  function startFontShuffle() {
-    var bigs = catchEl.querySelectorAll(".big");
-    var current = [];
-    function roll(idx) {
-      var next;
-      do {
-        next = Math.floor(Math.random() * SHUFFLE_FONTS.length);
-      } while (next === current[idx]);
-      current[idx] = next;
-      bigs[idx].style.fontFamily = SHUFFLE_FONTS[next];
-    }
-    var fs = setInterval(function () {
-      for (var i = 0; i < bigs.length; i++) roll(i);
-    }, 100);
-    introTimers.push(fs);
-  }
-
   function endIntro(fast) {
     introTimers.forEach(clearTimeout);
+    if (shuffleCtl) shuffleCtl.stop();
     intro.classList.add("out");
     document.body.classList.remove("lock");
     setTimeout(function () { intro.hidden = true; }, fast ? 0 : 650);
@@ -433,7 +406,8 @@
         clearInterval(iv);
         flash.hidden = true;
         catchEl.classList.add("show");
-        startFontShuffle();
+        // HARAHARA / NUKUNUKU をそれぞれ独立に 0.1 秒ごとにフォントシャッフル
+        shuffleCtl = FontShuffle.start(catchEl.querySelectorAll(".big"));
         introTimers.push(setTimeout(function () { endIntro(); }, 1700));
       }
     }, 95);
