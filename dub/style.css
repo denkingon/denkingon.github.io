@@ -1,0 +1,365 @@
+/* ============================================================
+   ダブ用パレット — 様式
+   絶対に壊さない4つ:
+     1. 色は赤だけ。それ以外は全部グレー
+     2. 暗いのが道具、白いのが素材
+     3. 時間は上から下
+     4. 赤はカードを開かずに、位置と件数が分かる
+   ============================================================ */
+
+:root{
+  /* 道具（暗い） */
+  --chrome:#1a1c1e; --chrome2:#26292c; --chrome3:#2e3236;
+  --line:#383c40;  --line2:#282c30;  --line3:#525860;
+  --ctext:#9ba1a7; --ctext2:#6d7378; --bright:#e4e8eb;
+
+  /* 素材（白い） */
+  --paper:#fbfbf9; --ink:#16181a; --ink2:#6c7075; --ink3:#a6a69c;
+  --rule:#e2e2db;  --rule2:#eeeee8; --film:#e6e6df;
+
+  /* このアプリで唯一の色 */
+  --alarm:#c03a2b; --alarm2:#e0503c; --alarm-w:#f3dedb;
+
+  /* 書体
+     訳文は90分読み続ける前提。ヒラギノ角ゴ / 游ゴシックはどちらも
+     低コントラスト・大きな字面で、長文の地の文に耐える。
+     明朝に切り替えたいときは body[data-serif] を立てる。 */
+  --ui:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic UI","Yu Gothic",
+       "游ゴシック体","Noto Sans JP",system-ui,sans-serif;
+  --read:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic","游ゴシック体",
+         "Noto Sans JP",sans-serif;
+  --serif:"Hiragino Mincho ProN","Yu Mincho","游明朝体","YuMincho","Noto Serif JP",serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",monospace;
+
+  --ja-size:17px;
+  --ja-weight:500;
+  --topH:118px;
+  --gap:12px;
+}
+body[data-serif="1"]{ --read:var(--serif); --ja-weight:600; }
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--chrome); color:var(--ctext);
+  font-family:var(--ui); font-size:13px;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+:focus-visible{outline:2px solid #cfd4d8; outline-offset:2px}
+[hidden]{display:none!important}
+button{font:inherit}
+
+/* ===================== 上部バー（道具） ===================== */
+.top{position:sticky; top:0; z-index:20; background:var(--chrome); border-bottom:1px solid var(--line)}
+.bar{padding:9px 18px; display:flex; flex-wrap:wrap; gap:18px; align-items:center}
+.bar+.bar{border-top:1px solid var(--line2)}
+.grp{display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:12px; max-width:100%}
+.grp>label{color:var(--ctext2); white-space:nowrap}
+.spacer{flex:1 1 auto}
+.hint{font-size:11px; color:var(--ctext2); white-space:nowrap}
+.sep{width:1px; align-self:stretch; background:var(--line2); margin:0 2px}
+
+button.tg{
+  background:transparent; border:1px solid var(--line); color:var(--ctext);
+  font-size:12px; padding:5px 10px; cursor:pointer; border-radius:2px; white-space:nowrap;
+}
+button.tg:hover{border-color:var(--line3); color:var(--bright)}
+button.tg[aria-pressed="true"]{background:var(--chrome2); color:var(--bright); border-color:var(--line3)}
+button.tg[disabled]{opacity:.35; cursor:default}
+button.tg.icon{padding:5px 9px; font-size:14px; line-height:1}
+
+select,input[type=text],input[type=number],textarea{
+  background:var(--chrome2); color:var(--ctext); border:1px solid var(--line);
+  font:inherit; font-size:12px; padding:4px 6px; border-radius:2px;
+}
+textarea{font-family:var(--read); line-height:1.7; resize:vertical; width:100%}
+input[type=range]{width:128px; accent-color:#c6ccd1; background:transparent}
+
+#play{
+  width:34px; height:34px; flex:none; border:1px solid var(--line3); background:var(--chrome2);
+  color:var(--bright); font-size:13px; line-height:1; cursor:pointer; padding:0; border-radius:2px;
+}
+#play:hover{border-color:#7d858c}
+.clock{font-family:var(--mono); font-size:13px; color:var(--bright); white-space:nowrap; letter-spacing:-.01em}
+.clock i{font-style:normal; color:var(--ctext2)}
+.clock #dur{color:var(--ctext2)}
+
+.val{font-family:var(--mono); font-size:13px; color:var(--bright); min-width:58px; text-align:right}
+.tally{font-family:var(--mono); font-size:13px; color:var(--alarm); min-width:52px}
+.tally.zero{color:var(--ctext2)}
+
+/* ---- ミニタイムライン：赤の一望装置 ---- */
+.mini{
+  display:flex; gap:6px; align-items:stretch;
+  flex:1 1 320px; min-width:240px; height:46px; cursor:pointer; padding:5px 0 6px; user-select:none;
+}
+.mlabs{flex:none; width:11px; display:flex; flex-direction:column; gap:3px; padding-top:0}
+.mlabs>span{height:8px; line-height:8px; font-size:9px; color:var(--ctext2); text-align:right}
+.mtrack{position:relative; flex:1; min-width:0}
+.mrows{position:relative; display:flex; flex-direction:column; gap:3px}
+.mrow{position:relative; height:8px; background:#2b2f33; border-radius:1px}
+.mrow>i{position:absolute; top:0; height:8px; background:#4d545a; border-radius:1px; font-style:normal}
+.mrow>i.clip{background:repeating-linear-gradient(45deg,#31363a 0 3px,#2b2f33 3px 6px)}
+.mrow>i.red{background:var(--alarm); top:-2px; height:12px; z-index:2; border-radius:1px}
+.mrow>i.cur{box-shadow:0 0 0 1px var(--bright)}
+.mticks{position:absolute; left:0; right:0; bottom:0; height:5px}
+.mticks>u{position:absolute; bottom:0; width:1px; height:3px; background:#3a3f44; text-decoration:none}
+.mticks>u.big{height:6px; background:#4a5055}
+#mhead{position:absolute; top:-1px; bottom:5px; width:1px; background:var(--bright); pointer-events:none; z-index:3}
+#mhead::before{content:""; position:absolute; top:-3px; left:-2px; width:5px; height:4px; background:var(--bright)}
+
+/* 赤だけのサマリ帯（レーンを畳んでも赤の位置は消えない） */
+.msum{position:relative; height:4px; margin-top:3px; background:#232729; border-radius:1px}
+.msum>i{position:absolute; top:0; height:4px; background:var(--alarm); border-radius:1px}
+
+/* ===================== シート（縦＝時間） ===================== */
+.sheet{
+  display:grid; gap:0 var(--gap); padding:16px 18px 140px;
+  align-items:start; position:relative;
+  max-width:1320px; margin:0 auto;
+}
+.head{
+  position:sticky; top:var(--topH); z-index:8; background:var(--chrome);
+  font-size:11.5px; color:var(--ctext2); padding:9px 0 8px;
+  border-bottom:1px solid var(--line); letter-spacing:.04em;
+}
+.head b{color:var(--ctext); font-weight:500}
+.head .n{font-family:var(--mono); color:var(--ctext2); margin-left:6px}
+.head .n.red{color:var(--alarm)}
+
+/* 空きレーンが「穴」でなく「休んでいる列」に見えるための罫 */
+.rail{border-left:1px solid var(--line2); pointer-events:none; z-index:0; align-self:stretch; min-height:100%}
+
+/* 左の時刻レール */
+.tc{
+  font-family:var(--mono); font-size:11.5px; color:var(--ctext2);
+  padding:11px 8px 0 0; text-align:right; position:relative; z-index:1;
+}
+.tc::after{content:""; position:absolute; right:-1px; top:0; bottom:-16px; width:1px; background:var(--line2)}
+.tc>u{position:absolute; right:-4px; top:16px; width:7px; height:1px; background:var(--line); text-decoration:none}
+.tc.hot{color:var(--bright)}
+
+/* ===================== カード（素材・白い） ===================== */
+.card{
+  background:var(--paper); color:var(--ink); border:1px solid var(--rule);
+  padding:11px 12px 12px; margin-bottom:14px; cursor:pointer; position:relative; z-index:1;
+  border-radius:2px;
+}
+.card.over{border-color:var(--alarm); box-shadow:inset 3px 0 0 var(--alarm)}
+.card.sel{box-shadow:0 0 0 2px #7d858c}
+.card.over.sel{box-shadow:inset 3px 0 0 var(--alarm),0 0 0 2px #7d858c}
+.card.playing{box-shadow:0 0 0 2px var(--bright)}
+.card.over.playing{box-shadow:inset 3px 0 0 var(--alarm),0 0 0 2px var(--bright)}
+
+.chead{display:flex; align-items:center; gap:9px; margin-bottom:10px}
+.cmeta{flex:1; min-width:0; display:flex; flex-direction:column; gap:5px}
+.crow{display:flex; align-items:center; gap:7px; flex-wrap:wrap; min-width:0}
+.lane-chip{
+  font-size:10px; color:var(--ink2); border:1px solid var(--rule);
+  padding:1px 5px; border-radius:2px; white-space:nowrap;
+}
+.kind{font-size:11px; color:var(--ink2); white-space:nowrap; cursor:pointer; border-bottom:1px dotted transparent}
+.kind:hover{border-bottom-color:var(--ink3)}
+.span{font-family:var(--mono); font-size:10.5px; color:var(--ink3); white-space:nowrap}
+
+/* 録音ステータス：塗り/抜きの2値は弱いので 未/仮/済 の3値＋字 */
+.rec{
+  flex:none; min-width:26px; height:18px; padding:0 4px; cursor:pointer; border-radius:2px;
+  font-family:var(--mono); font-size:10px; line-height:16px; letter-spacing:.02em;
+  border:1px solid var(--ink3); background:transparent; color:var(--ink3);
+}
+.rec[data-state="1"]{
+  border-color:var(--ink2); color:var(--ink);
+  background:repeating-linear-gradient(45deg,var(--rule) 0 2px,transparent 2px 4px);
+}
+.rec[data-state="2"]{background:var(--ink); border-color:var(--ink); color:var(--paper)}
+.rec:hover{border-color:var(--ink)}
+
+/* コマ撮り：カットを見分けるための見当。見るためのものではないので小さく持つ。
+   カード幅いっぱいに置くとカードが3倍の高さになり、空きレーンの間延びの主因になる */
+.film{
+  background:var(--film); width:96px; aspect-ratio:16/9; flex:none;
+  display:flex; align-items:center; justify-content:center;
+  position:relative; overflow:hidden; border-radius:1px; border:1px solid var(--rule2);
+}
+/* コマは灰にしておく。実写のフレームに赤が写っていると、それだけで警告の赤が薄まる。
+   カットの見分けは灰でつく。中身を確かめたいときだけ、指を置けば色が戻る */
+.film img{width:100%; height:100%; object-fit:cover; display:block; filter:grayscale(1) contrast(1.05)}
+.card:hover .film img{filter:none}
+.film>span{font-size:10px; color:var(--ink3)}
+.film>em{
+  position:absolute; left:0; bottom:0; font-family:var(--mono); font-style:normal;
+  font-size:9.5px; color:var(--paper); background:rgba(0,0,0,.5); padding:0 3px;
+}
+.film.empty>em{color:var(--ink3); background:transparent; padding:0}
+
+/* ---- セル：口合わせは息継ぎごとに割れる ---- */
+.cells{display:flex; flex-direction:column}
+.cell{display:grid; grid-template-columns:22px minmax(0,1fr); gap:0 8px; padding:10px 0 2px; position:relative}
+.cell+.cell{border-top:1px solid var(--rule); margin-top:2px}
+.cell:first-child{padding-top:0}
+.one .cell{grid-template-columns:minmax(0,1fr); padding-top:0}
+.one .gut{display:none}
+
+.gut{
+  position:relative; display:flex; flex-direction:column;
+  align-items:center; gap:4px; padding-top:2px;
+}
+.cbody{min-width:0}
+.gut .no{font-family:var(--mono); font-size:10px; color:var(--ink3); line-height:1}
+.gut .gbar{width:2px; flex:1; background:var(--rule); border-radius:1px; min-height:12px}
+.cell.bad .gut .gbar{background:var(--alarm)}
+.cell.bad .gut .no{color:var(--alarm)}
+
+/* 秒数を先に出す。入れ物が先、中身が後 */
+.slot{
+  display:flex; align-items:baseline; gap:8px; margin-bottom:5px;
+  font-family:var(--mono); font-size:10.5px; color:var(--ink3);
+}
+.slot b{font-weight:600; color:var(--ink2)}
+.slot .at{margin-left:auto}
+
+.en{font-size:12.5px; line-height:1.6; color:var(--ink2); margin:0 0 7px; font-family:var(--read)}
+.ja{
+  font-family:var(--read); font-size:var(--ja-size); font-weight:var(--ja-weight);
+  line-height:1.85; color:var(--ink); border:0; outline:0; white-space:pre-wrap;
+  min-height:1.85em; cursor:text; letter-spacing:.01em; word-break:normal; overflow-wrap:anywhere;
+}
+.ja:focus{background:#f2f2ec; box-shadow:0 0 0 4px #f2f2ec}
+.ja:empty::before{content:"訳文"; color:var(--ink3); font-weight:400}
+
+.kana{
+  display:none; font-family:var(--read); font-size:12px; line-height:1.6; color:var(--ink2);
+  border:0; border-bottom:1px dashed var(--rule); outline:0; margin-top:5px; white-space:pre-wrap;
+  min-height:1.6em; cursor:text;
+}
+.kana.on{display:block}
+.kana:empty::before{content:"よみ（かなで入れると推定でなく確定になる）"; color:var(--ink3)}
+
+.meta{
+  display:flex; gap:11px; align-items:baseline; margin-top:6px; flex-wrap:wrap;
+  font-family:var(--mono); font-size:10.5px; color:var(--ink2);
+}
+.meta b{font-weight:600}
+.meta .bad{color:var(--alarm)}
+.meta .est{font-family:var(--ui); font-size:9.5px; color:var(--ink3); border:1px solid var(--rule); padding:0 3px; border-radius:2px}
+.meta .kanabtn{
+  margin-left:auto; font-family:var(--ui); font-size:10px; color:var(--ink3);
+  background:transparent; border:1px solid var(--rule); padding:1px 5px; cursor:pointer; border-radius:2px;
+}
+.meta .kanabtn:hover{color:var(--ink2); border-color:var(--ink3)}
+
+/* 無音（クリップ）＝触れない空白。紙にしない */
+.silent{
+  border:1px dashed var(--line); background:var(--chrome2); color:var(--ctext2);
+  padding:9px 11px; margin-bottom:14px; font-size:11.5px; border-radius:2px;
+  display:flex; gap:10px; align-items:center; position:relative; z-index:1;
+}
+.silent .span{color:var(--ctext2); font-family:var(--mono); margin-left:auto}
+
+/* 流し表示：90分読み続けるための単列 */
+.sheet.flow{grid-template-columns:minmax(0,1fr)!important; max-width:760px}
+.sheet.flow .rail,.sheet.flow .head{display:none}
+.sheet.flow .tc{
+  text-align:left; padding:0 0 4px; grid-column:1!important; font-size:11px;
+}
+.sheet.flow .tc::after,.sheet.flow .tc>u{display:none}
+.sheet.flow .card,.sheet.flow .silent{grid-column:1!important}
+
+/* ===================== 適合平面 ===================== */
+.plane{max-width:1000px; margin:0 auto; padding:20px 18px 120px}
+.plane h2{font-size:13px; font-weight:500; color:var(--bright); margin:0 0 4px}
+.plane p.lead{font-size:11.5px; color:var(--ctext2); margin:0 0 16px; line-height:1.7}
+.planebox{background:var(--chrome2); border:1px solid var(--line); padding:14px; border-radius:2px}
+.planebox svg{display:block; width:100%; height:auto}
+.plane .legend{display:flex; gap:18px; flex-wrap:wrap; margin-top:12px; font-size:11px; color:var(--ctext2)}
+.plane .legend i{display:inline-block; width:18px; height:0; border-top:1px solid var(--ctext2); vertical-align:4px; margin-right:6px; font-style:normal}
+.plane .legend i.dash{border-top-style:dashed}
+.plane .legend i.dot{width:7px; height:7px; border:0; border-radius:50%; background:var(--ctext2); vertical-align:0}
+.plane .legend i.dot.red{background:var(--alarm)}
+.worst{margin-top:20px}
+.worst table{width:100%; border-collapse:collapse; font-size:11.5px}
+.worst th{text-align:left; font-weight:500; color:var(--ctext2); padding:6px 8px; border-bottom:1px solid var(--line)}
+.worst td{padding:7px 8px; border-bottom:1px solid var(--line2); color:var(--ctext)}
+.worst td.m{font-family:var(--mono)}
+.worst td.bad{color:var(--alarm)}
+.worst tr{cursor:pointer}
+.worst tr:hover td{background:var(--chrome2)}
+.worst .ja{font-family:var(--read); font-size:12px; font-weight:400; color:var(--ctext); line-height:1.6;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:0}
+
+/* ===================== ダイアログ ===================== */
+dialog{
+  background:var(--chrome2); color:var(--ctext); border:1px solid var(--line3);
+  border-radius:3px; padding:0; max-width:min(680px,94vw); width:100%;
+}
+dialog::backdrop{background:rgba(10,11,12,.68)}
+dialog .dhead{
+  display:flex; align-items:center; gap:12px; padding:13px 16px; border-bottom:1px solid var(--line);
+}
+dialog .dhead h2{font-size:13px; font-weight:500; color:var(--bright); margin:0}
+dialog .dbody{padding:16px; max-height:min(66vh,560px); overflow:auto}
+dialog .dfoot{padding:12px 16px; border-top:1px solid var(--line); display:flex; gap:10px; align-items:center}
+dialog .x{margin-left:auto}
+dialog p.note{font-size:11.5px; line-height:1.75; color:var(--ctext2); margin:0 0 14px}
+dialog .row{display:flex; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap}
+dialog .row>label{font-size:12px; color:var(--ctext2); min-width:84px}
+dialog h3{font-size:12px; font-weight:500; color:var(--ctext); margin:20px 0 8px; letter-spacing:.03em}
+dialog h3:first-child{margin-top:0}
+
+.big{font-family:var(--mono); font-size:26px; color:var(--bright); letter-spacing:-.02em}
+.big small{font-size:12px; color:var(--ctext2); margin-left:4px; letter-spacing:0}
+.samples{list-style:none; margin:10px 0 0; padding:0; font-family:var(--mono); font-size:11.5px}
+.samples li{display:flex; gap:12px; align-items:center; padding:5px 0; border-bottom:1px solid var(--line2)}
+.samples li.med{color:var(--bright)}
+.samples li .tagm{font-family:var(--ui); font-size:9.5px; color:var(--ctext2); border:1px solid var(--line); padding:0 4px; border-radius:2px}
+.samples li button{margin-left:auto; background:transparent; border:0; color:var(--ctext2); cursor:pointer; font-size:14px; line-height:1; padding:0 4px}
+.samples li button:hover{color:var(--alarm2)}
+.samples .none{color:var(--ctext2); font-family:var(--ui); font-size:11.5px; border:0}
+
+.tabs{display:flex; gap:0; border-bottom:1px solid var(--line); margin-bottom:16px}
+.tabs button{
+  background:transparent; border:0; border-bottom:2px solid transparent; color:var(--ctext2);
+  font-size:12px; padding:8px 14px; cursor:pointer;
+}
+.tabs button[aria-selected="true"]{color:var(--bright); border-bottom-color:var(--ctext)}
+
+.dictlist{list-style:none; margin:0; padding:0; font-size:12px}
+.dictlist li{display:flex; gap:10px; align-items:center; padding:6px 0; border-bottom:1px solid var(--line2)}
+.dictlist li span:first-child{font-family:var(--read); min-width:120px}
+.dictlist li span:nth-child(2){font-family:var(--read); color:var(--ctext2); flex:1}
+.dictlist li button{background:transparent; border:0; color:var(--ctext2); cursor:pointer; font-size:14px; padding:0 4px}
+.dictlist li button:hover{color:var(--alarm2)}
+
+.kv{display:grid; grid-template-columns:auto 1fr; gap:6px 14px; font-size:11.5px; color:var(--ctext2)}
+.kv b{font-weight:500; color:var(--ctext)}
+kbd{
+  font-family:var(--mono); font-size:10.5px; background:var(--chrome3); border:1px solid var(--line);
+  border-radius:2px; padding:1px 5px; color:var(--ctext);
+}
+
+.toast{
+  position:fixed; left:50%; bottom:26px; transform:translateX(-50%); z-index:60;
+  background:var(--chrome3); border:1px solid var(--line3); color:var(--bright);
+  font-size:12px; padding:9px 16px; border-radius:3px; pointer-events:none; opacity:0; transition:opacity .18s;
+}
+.toast.on{opacity:1}
+
+.empty-state{max-width:560px; margin:80px auto; text-align:center; color:var(--ctext2); font-size:12.5px; line-height:1.9}
+.empty-state .grp{justify-content:center; margin-top:18px}
+
+/* ===================== 狭い画面 ===================== */
+@media (max-width:880px){
+  .sheet{grid-template-columns:minmax(0,1fr)!important; padding:12px 12px 90px}
+  .sheet .head,.sheet .rail{display:none}
+  .sheet .tc{text-align:left; padding:0 0 4px; grid-column:1!important}
+  .sheet .tc::after,.sheet .tc>u{display:none}
+  .sheet .card,.sheet .silent{grid-column:1!important}
+  .bar{padding:8px 12px; gap:12px}
+  .mini{flex-basis:100%}
+  input[type=range]{width:108px}
+  .val{min-width:0}
+  .sep{display:none}
+}
+@media (prefers-reduced-motion:reduce){ *{scroll-behavior:auto!important; transition:none!important} }
+@media print{ .top,.plane{display:none} .card{break-inside:avoid} }
