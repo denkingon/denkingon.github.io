@@ -407,3 +407,13 @@ kbd{
 }
 @media (prefers-reduced-motion:reduce){ *{scroll-behavior:auto!important; transition:none!important} }
 @media print{ .top,.plane{display:none} .card{break-inside:avoid} }
+
+/* ---- 本番の録音：テイクの行（ファイル画面） ---- */
+.take{border:1px solid #d9d9d2;background:#fbfbf9;padding:8px 10px;margin:8px 0}
+.take .trow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 0}
+.take .tname{font-weight:600}
+.take .miss{color:#c03a2b}
+.take .tstrip{display:block;width:100%;height:56px;border:1px solid #e4e4dc;background:#fbfbf9;cursor:col-resize;touch-action:none}
+.take input[type=text]{width:5.5em}
+.take .tspd{width:8em}
+.take .tspdv{min-width:3.5em;font-variant-numeric:tabular-nums}
