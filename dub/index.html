@@ -20,6 +20,7 @@
          aria-valuemin="0" aria-valuenow="0" aria-valuetext="0:00">
       <div class="mlabs" id="mlabs"></div>
       <div class="mtrack" id="mtrack">
+        <canvas class="mwave" id="mwave" height="14" hidden></canvas>
         <div class="mrows" id="mrows"></div>
         <div class="msum" id="msum" title="赤の位置（レーンを畳んでも消えない）"></div>
         <div class="mticks" id="mticks"></div>
@@ -37,9 +38,14 @@
         <option value="1" selected>1.0x</option>
         <option value="1.25">1.25x</option>
       </select></div>
-    <label class="tg" for="mediafile" style="cursor:pointer">メディア…</label>
+    <label class="tg" for="mediafile" style="cursor:pointer" title="映像（mp4 など）">映像…</label>
     <input type="file" id="mediafile" accept="video/*,audio/*" hidden>
-    <span class="hint" id="mediahint">音源未接続</span>
+    <label class="tg" for="wavfile" style="cursor:pointer" title="本番の録音。32-bit float WAV も読める">録音…</label>
+    <input type="file" id="wavfile" accept=".wav,audio/wav,audio/x-wav,audio/wave" hidden>
+    <button class="tg" id="jaon" aria-pressed="true" title="J" disabled>日本語</button>
+    <button class="tg" id="vidwin" aria-pressed="false" title="V" disabled>映像</button>
+    <span class="hint" id="mediahint">映像なし</span>
+    <span class="hint" id="wavhint">録音なし</span>
   </div>
 
   <div class="bar">
@@ -231,6 +237,12 @@
       <button class="tg" id="fDict">読み辞書…</button>
     </div>
     <div class="row">
+      <label>DAW へ</label>
+      <button class="tg" id="fLabels">Audacity ラベル</button>
+      <button class="tg" id="fReaper">REAPER マーカー CSV</button>
+      <span class="hint">ブロックの枠とピンを、DAW の同じ時刻に出す</span>
+    </div>
+    <div class="row">
       <label>ピン</label>
       <button class="tg" id="fPinsClear">全部外す</button>
       <span class="hint">左の時刻を押すと打てる。2本で1区間。区間の中は同じレーンの合計で判定する</span>
@@ -265,7 +277,9 @@
       <b><kbd>Space</kbd></b><span>再生 / 停止</span>
       <b><kbd>[</kbd> <kbd>]</kbd></b><span>前の赤 / 次の赤へ飛ぶ</span>
       <b><kbd>L</kbd></b><span>選択をループ</span>
-      <b><kbd>O</kbd></b><span>原音の入り切り</span>
+      <b><kbd>O</kbd></b><span>原音（映像の音）の入り切り</span>
+      <b><kbd>J</kbd></b><span>日本語（録音 WAV）の入り切り</span>
+      <b><kbd>V</kbd></b><span>映像の窓を出す／しまう</span>
       <b><kbd>R</kbd></b><span>選択ブロックの録音ステータスを回す（未→仮→済）</span>
       <b><kbd>E</kbd></b><span>選択ブロックを編集</span>
       <b><kbd>P</kbd></b><span>選択ブロックの頭にピンを打つ／外す</span>
@@ -277,7 +291,7 @@
 
 <div class="toast" id="toast"></div>
 
-<video id="media" hidden playsinline preload="auto"></video>
+<div class="vwin" id="vwin" hidden><video id="media" playsinline preload="auto"></video></div>
 <video id="grabber" hidden playsinline preload="auto" muted></video>
 <canvas id="canvas" hidden width="320" height="180"></canvas>
 
