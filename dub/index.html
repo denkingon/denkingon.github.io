@@ -23,6 +23,7 @@
         <div class="mrows" id="mrows"></div>
         <div class="msum" id="msum" title="赤の位置（レーンを畳んでも消えない）"></div>
         <div class="mticks" id="mticks"></div>
+        <div id="mpins"></div>
         <div id="mhead" style="left:0"></div>
       </div>
     </div>
@@ -48,6 +49,14 @@
       <span class="val" id="rateval">7.0 /秒</span>
       <span class="hint" id="ratesrc">未測定の仮値</span>
       <button class="tg" id="measure">実測…</button>
+      <label for="speedup" title="録音をあとで速めるなら、その倍率。判定話速と限界に掛かる">倍速</label>
+      <select id="speedup">
+        <option value="1">1.0×</option><option value="1.05">1.05×</option>
+        <option value="1.1">1.1×</option><option value="1.15">1.15×</option>
+        <option value="1.2">1.2×</option><option value="1.25">1.25×</option>
+        <option value="1.3">1.3×</option>
+      </select>
+      <span class="val" id="rateeff" hidden></span>
     </div>
     <div class="sep"></div>
     <div class="grp">
@@ -126,6 +135,13 @@
       <span class="hint">または実秒数を直接　</span>
       <input type="number" id="manualSec" min="0" step="0.1" style="width:84px" placeholder="秒">
       <button class="tg" id="addManual">記録</button>
+    </div>
+
+    <div class="row" style="margin-top:6px">
+      <span class="hint">外で測った話速をそのまま入れる　</span>
+      <input type="number" id="directRate" min="1" max="20" step="0.01" style="width:84px" placeholder="/秒">
+      <input type="text" id="directNote" placeholder="メモ（本番話速・調音速度 など）" style="flex:1;min-width:140px">
+      <button class="tg" id="addDirect">記録</button>
     </div>
 
     <h3>3. 記録</h3>
@@ -214,6 +230,17 @@
       <button class="tg" id="fAddBlock">ブロックを足す</button>
       <button class="tg" id="fDict">読み辞書…</button>
     </div>
+    <div class="row">
+      <label>ピン</label>
+      <button class="tg" id="fPinsClear">全部外す</button>
+      <span class="hint">左の時刻を押すと打てる。2本で1区間。区間の中は同じレーンの合計で判定する</span>
+    </div>
+    <div class="row">
+      <label for="fClearLane">レーンを空にする</label>
+      <select id="fClearLane"></select>
+      <button class="tg" id="fClearDo">このレーンのブロックを全部消す</button>
+      <span class="hint">取り込みをやり直すとき用</span>
+    </div>
 
     <h3>読み方</h3>
     <div class="row">
@@ -241,6 +268,7 @@
       <b><kbd>O</kbd></b><span>原音の入り切り</span>
       <b><kbd>R</kbd></b><span>選択ブロックの録音ステータスを回す（未→仮→済）</span>
       <b><kbd>E</kbd></b><span>選択ブロックを編集</span>
+      <b><kbd>P</kbd></b><span>選択ブロックの頭にピンを打つ／外す</span>
       <b><kbd>F</kbd></b><span>列表示 ⇄ 流し表示</span>
       <b><kbd>Esc</kbd></b><span>閉じる</span>
     </div>

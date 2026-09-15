@@ -138,6 +138,30 @@ input[type=range]{width:128px; accent-color:#c6ccd1; background:transparent}
 .tc::after{content:""; position:absolute; right:-1px; top:0; bottom:-16px; width:1px; background:var(--line2)}
 .tc>u{position:absolute; right:-4px; top:16px; width:7px; height:1px; background:var(--line); text-decoration:none}
 .tc.hot{color:var(--bright)}
+.tc{cursor:pointer}
+.tc:hover{color:var(--ctext); text-decoration:underline dotted}
+
+/* ピンの行：区間の境目。レーンごとに、そこから始まる区間の収支を出す */
+.pintc,.pincell{
+  position:relative; z-index:2; cursor:pointer; margin-top:2px;
+  border-top:1px solid var(--ctext2); padding:7px 0 6px;
+  font-family:var(--mono); font-size:11px; color:var(--ctext2);
+}
+.pintc{padding-right:8px; text-align:right; color:var(--bright)}
+.pintc::before{content:""; position:absolute; right:-4px; top:-4px; width:7px; height:7px; background:var(--bright); border-radius:1px}
+.pincell b{font-weight:600; color:var(--ctext); margin-right:7px}
+.pincell b.red{color:var(--alarm)}
+.pincell.over{border-top-color:var(--alarm)}
+.pincell:hover,.pintc:hover{border-top-color:var(--bright)}
+.pinflow{
+  grid-column:1; border-top:1px solid var(--ctext2); margin-top:2px; padding:7px 0 4px; cursor:pointer;
+  font-family:var(--mono); font-size:11px; color:var(--ctext2); display:flex; gap:16px; flex-wrap:wrap;
+}
+.pinflow .pt{color:var(--bright)}
+.pinflow .pl i{font-style:normal; font-family:var(--ui); margin-right:5px; color:var(--ctext2)}
+.pinflow .pl b{font-weight:600; color:var(--ctext); margin-right:5px}
+.pinflow .pl b.red{color:var(--alarm)}
+#mpins i{position:absolute; top:-3px; bottom:5px; width:0; border-left:1px dashed var(--ctext); pointer-events:none; z-index:2}
 
 /* ===================== カード（素材・白い） ===================== */
 .card{
