@@ -309,7 +309,14 @@ $("lanes").addEventListener("click", e => {
 });
 $("viewmode").addEventListener("click", () => { S.flow = !S.flow; render({ save: false }) });
 $("planebtn").addEventListener("click", () => { S.plane = !S.plane; render({ save: false }) });
-$("filebtn").addEventListener("click", () => { $("fSaved").textContent = ""; $("dlgFile").showModal() });
+$("filebtn").addEventListener("click", () => {
+  $("fSaved").textContent = "";
+  $("fClearLane").innerHTML = S.proj.lanes.map((n, i) => {
+    const k = S.proj.blocks.filter(b => b.lane === i).length;
+    return `<option value="${i}">${n}（${k}）</option>`;
+  }).join("");
+  $("dlgFile").showModal();
+});
 
 /* --- シート --- */
 const sheet = $("sheet");
@@ -674,6 +681,15 @@ $("fSample").addEventListener("click", () => {
   S.proj = C.newProject(SAMPLE);
   S.show = S.proj.lanes.map(() => true); S.sel = null; S.frames = Object.create(null);
   buildLaneButtons(); syncRate(); render(); $("dlgFile").close();
+});
+$("fClearDo").addEventListener("click", () => {
+  const li = +$("fClearLane").value, name = S.proj.lanes[li];
+  const n = S.proj.blocks.filter(b => b.lane === li).length;
+  if (!n) return toast(`${name} にブロックはありません`);
+  if (!confirm(`${name} の ${n} ブロックを消します。戻せません。`)) return;
+  S.proj.blocks = S.proj.blocks.filter(b => b.lane !== li);
+  if (S.sel && !S.proj.blocks.some(b => b.id === S.sel)) S.sel = null;
+  render(); $("dlgFile").close(); toast(`${name} を空にしました`);
 });
 $("fAddBlock").addEventListener("click", () => {
   const b = C.newBlock({ t: Math.round(S.t * 10) / 10, lane: S.show.findIndex(Boolean), kind: "NARR" });
