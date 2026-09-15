@@ -9,7 +9,9 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&l
 /* ---------------- 1ブロックの判定をまとめる ---------------- */
 export function blockInfo(S, b){
   const cells = b.kind === "SILENT" ? [] : b.cells.map((_, ci) => S.J.cells.get(b.id + ":" + ci));
-  return { cells, over: cells.some(j => j.red), rescued: cells.some(j => j.rescued), dur: blockDur(b) };
+  const take = S.takes ? S.takes.get(b.id) : null;      // 本番の録音が枠に収まっているか
+  return { cells, over: cells.some(j => j.red) || !!(take && take.over), rescued: cells.some(j => j.rescued),
+           takeOver: !!(take && take.over), dur: blockDur(b) };
 }
 export const laneRedCount = (S, li) => [...S.J.cells.values()].filter(v => v.lane === li && v.red).length;
 
@@ -160,6 +162,8 @@ function cardHTML(S, b, info, flow, style = ""){
         `<span class="span">${range}</span>` +
       `</div>` +
     `</div>` +
+    (S.wav ? `<div class="wavebox"><canvas class="wave" data-wave="${b.id}" width="640" height="36"></canvas>` +
+             `<span class="wmeta" data-wmeta="${b.id}"></span></div>` : "") +
     `<div class="cells${one ? " one" : ""}">${cellsH}</div>` +
   `</div>`;
 }
@@ -180,7 +184,9 @@ export function renderMini(S){
   const pct = x => (x / end * 100) + "%";
 
   document.getElementById("mlabs").innerHTML =
+    (S.wav ? `<span class="mw">録</span>` : "") +
     shortLabels(proj.lanes).map(s => `<span>${esc(s)}</span>`).join("");
+  document.getElementById("mwave").hidden = !S.wav;
 
   rowsEl.innerHTML = proj.lanes.map((name, li) => {
     let segs = "";
@@ -207,6 +213,8 @@ export function renderMini(S){
   let sum = "";
   for (const v of S.J.cells.values())
     if (v.red) sum += `<i style="left:${pct(v.t)};width:${pct(Math.max(v.dur, end * 0.002))}"></i>`;
+  if (S.takes) for (const [, tk] of S.takes)     // 録音のはみ出しも「入らない」なので同じ帯に出す
+    if (tk.over && tk.take) sum += `<i style="left:${pct(tk.take.start)};width:${pct(Math.max(tk.take.dur, end * 0.002))}"></i>`;
   document.getElementById("msum").innerHTML = sum;
   document.getElementById("mpins").innerHTML = S.J.pins.map(t => `<i style="left:${pct(t)}"></i>`).join("");
 
