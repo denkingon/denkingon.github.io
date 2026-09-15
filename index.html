@@ -300,6 +300,7 @@
   </footer>
 </main>
 
+<script src="assets/font-shuffle.js"></script>
 <script>
 (function () {
   // ==== 写真設定: ここに入れるだけで全部に反映される ====
@@ -318,6 +319,7 @@
   var es = document.getElementById("t-s");
   var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var introTimers = [];
+  var shuffleCtl = null;
   var opened = false;
 
   function pad(n) { return (n < 10 ? "0" : "") + n; }
@@ -378,6 +380,7 @@
 
   function endIntro(fast) {
     introTimers.forEach(clearTimeout);
+    if (shuffleCtl) shuffleCtl.stop();
     intro.classList.add("out");
     document.body.classList.remove("lock");
     setTimeout(function () { intro.hidden = true; }, fast ? 0 : 650);
@@ -403,6 +406,8 @@
         clearInterval(iv);
         flash.hidden = true;
         catchEl.classList.add("show");
+        // HARAHARA / NUKUNUKU をそれぞれ独立に 0.1 秒ごとにフォントシャッフル
+        shuffleCtl = FontShuffle.start(catchEl.querySelectorAll(".big"));
         introTimers.push(setTimeout(function () { endIntro(); }, 1700));
       }
     }, 95);
