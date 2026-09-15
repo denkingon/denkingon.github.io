@@ -102,13 +102,25 @@ export function newProject(o = {}){
     limitRate: o.limitRate ?? 9.0,
     rateManual: o.rateManual ?? null,   // スライダーで仮に動かした値。null なら実測の中央値
     speedup: o.speedup ?? 1,            // 録音をあとで何倍速にするか。判定話速と限界に掛かる
-    recOffset: +(o.recOffset ?? 0) || 0,   // 本番の録音の開始位置（秒）。WAV の 0:00 が時間軸のどこか
     recThr: o.recThr > 0 ? +o.recThr : null, // 声のしきい値（rms）。null なら自動
+    takes: (o.takes ?? []).map(newTake),     // 本番の録音（テイク）。音そのものは持たず、ファイル名と置き方だけ
     pins: (o.pins ?? []).map(Number).filter(t => t >= 0).sort((a, b) => a - b),  // 手で打ったアンカー（秒）
     samples: o.samples ?? [],           // {kind:'base'|'limit', mora, sec, note, at}
     dict: o.dict ?? {},
     blocks: (o.blocks || []).map(newBlock),
     demo: o.demo ?? false,
+  };
+}
+
+/** テイク＝WAV 1 本の置き方。in/out は WAV の中の秒（out が null なら末尾）、
+    offset は切り出した頭を時間軸のどこに置くか、speed は伸縮（1.25 で 1.25 倍速・ピッチはそのまま） */
+export function newTake(o = {}){
+  return {
+    name: String(o.name ?? ""),
+    offset: Math.max(0, +(o.offset ?? 0) || 0),
+    in: Math.max(0, +(o.in ?? 0) || 0),
+    out: o.out == null || !(+o.out > 0) ? null : +o.out,
+    speed: Math.min(2, Math.max(0.5, +(o.speed ?? 1) || 1)),
   };
 }
 

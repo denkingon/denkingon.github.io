@@ -143,35 +143,135 @@ export function drawWave(canvas, A, opt){
 
 /* ---------------- 再生 ----------------
    映像があれば映像が時計。無ければ AudioContext が時計 */
-export class WavPlayer {
-  constructor(){ this.ctx = null; this.buffer = null; this.gain = null; this.src = null;
-                 this.playing = false; this.startCtx = 0; this.startT = 0; this.rate = 1; this.on = true; this.offset = 0 }
-  load(wav){
-    if (!this.ctx) { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); this.gain = this.ctx.createGain(); this.gain.connect(this.ctx.destination) }
-    this.stop();
-    this.buffer = this.ctx.createBuffer(wav.channels, wav.frames, wav.sampleRate);
-    wav.ch.forEach((c, i) => this.buffer.copyToChannel(c, i));
-    this.gain.gain.value = this.on ? 1 : 0;
+/* ---------------- 再生：テイク複数を時間軸に置いて鳴らす ----------------
+   各テイクは { buffer, offset }。offset は時間軸のどこにテイクの 0 秒が来るか。
+   play(t) は t に掛かるテイクを全部同時に始める。t より先にあるテイクは待ってから鳴らす */
+export class MultiPlayer {
+  constructor(){ this.ctx = null; this.gain = null; this.takes = new Map(); this.srcs = [];
+                 this.playing = false; this.startCtx = 0; this.startT = 0; this.rate = 1; this.on = true }
+  ensure(){
+    if (!this.ctx) { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); this.gain = this.ctx.createGain(); this.gain.connect(this.ctx.destination); this.gain.gain.value = this.on ? 1 : 0 }
   }
-  /** t は時間軸の秒。WAV の中では t - offset。手前なら待ってから鳴らす */
+  setTake(id, wav, offset){
+    this.ensure();
+    const buffer = this.ctx.createBuffer(wav.channels, Math.max(1, wav.frames), wav.sampleRate);
+    wav.ch.forEach((c, i) => buffer.copyToChannel(c, i));
+    this.takes.set(id, { buffer, offset: +offset || 0 });
+    if (this.playing) this.play(this.now());
+  }
+  setOffset(id, offset){ const tk = this.takes.get(id); if (!tk) return; tk.offset = +offset || 0; if (this.playing) this.play(this.now()) }
+  remove(id){ this.takes.delete(id); if (this.playing) this.play(this.now()) }
+  get duration(){ let e = 0; for (const tk of this.takes.values()) e = Math.max(e, tk.offset + tk.buffer.duration); return e }
   play(t){
-    if (!this.buffer) return;
     this.stop();
-    this.ctx.resume();
-    const at = t - this.offset;
-    if (at >= this.buffer.duration - 0.01) { this.startT = t; return }
-    const src = this.ctx.createBufferSource();
-    src.buffer = this.buffer; src.playbackRate.value = this.rate; src.connect(this.gain);
-    if (at < 0) src.start(this.ctx.currentTime + (-at) / this.rate, 0); else src.start(0, at);
-    this.src = src; this.startCtx = this.ctx.currentTime; this.startT = t; this.playing = true;
-    src.onended = () => { if (this.src === src) { this.playing = false; this.src = null } };
+    if (!this.takes.size) return;
+    this.ensure(); this.ctx.resume();
+    this.startCtx = this.ctx.currentTime; this.startT = t;
+    for (const tk of this.takes.values()) {
+      const at = t - tk.offset;
+      if (at >= tk.buffer.duration - 0.01) continue;
+      const src = this.ctx.createBufferSource();
+      src.buffer = tk.buffer; src.playbackRate.value = this.rate; src.connect(this.gain);
+      if (at < 0) src.start(this.startCtx + (-at) / this.rate, 0); else src.start(0, at);
+      src.onended = () => { this.srcs = this.srcs.filter(x => x !== src); if (!this.srcs.length) this.playing = false };
+      this.srcs.push(src);
+    }
+    this.playing = this.srcs.length > 0;
   }
-  stop(){ if (this.src) { try { this.src.onended = null; this.src.stop() } catch {} this.src.disconnect(); this.src = null } this.playing = false }
+  stop(){ for (const src of this.srcs) { try { src.onended = null; src.stop() } catch {} src.disconnect() } this.srcs = []; this.playing = false }
   now(){ return this.playing ? this.startT + (this.ctx.currentTime - this.startCtx) * this.rate : this.startT }
   seek(t){ const was = this.playing; this.startT = t; if (was) this.play(t) }
   setRate(r){ this.rate = r; if (this.playing) this.play(this.now()) }
   setOn(v){ this.on = v; if (this.gain) this.gain.gain.value = v ? 1 : 0 }
-  setOffset(o){ const was = this.playing, t = this.now(); this.offset = o; if (was) this.play(t) }
+}
+
+/* ---------------- 伸縮（WSOLA）----------------
+   ピッチを保ったまま ratio 倍の速さにする（ratio 1.25 → 長さ 1/1.25）。
+   24ms の窓・50% 重ね。前の窓の自然な続きと最も似た位置を ±8ms で探して重ねる */
+export function stretch(x, sr, ratio){
+  if (!(ratio > 0) || Math.abs(ratio - 1) < 1e-3) return Float32Array.from(x);
+  const N = Math.max(64, Math.round(sr * 0.024) & ~1), Ss = N / 2, Sa = Ss * ratio, tol = Math.round(sr * 0.008);
+  const outLen = Math.floor(x.length / ratio);
+  const y = new Float32Array(outLen + N);
+  const win = new Float32Array(N);
+  for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N);
+  const sim = (a, b) => { let s = 0; for (let i = 0; i < Ss; i += 2) s += x[a + i] * x[b + i]; return s };
+  let prev = 0;
+  for (let k = 0; ; k++) {
+    const outPos = k * Ss;
+    if (outPos + N > y.length) break;
+    const nominal = Math.round(k * Sa);
+    if (nominal + N + tol >= x.length) break;
+    let best = nominal;
+    if (k > 0) {
+      const target = prev + Ss;                      // 前の窓の自然な続き
+      if (target + Ss < x.length) {
+        let bestC = -Infinity;
+        const lo = Math.max(0, nominal - tol), hi = Math.min(x.length - N, nominal + tol);
+        for (let c = lo; c <= hi; c += 3) { const v = sim(c, target); if (v > bestC) { bestC = v; best = c } }
+        for (let c = Math.max(lo, best - 2); c <= Math.min(hi, best + 2); c++) { const v = sim(c, target); if (v > bestC) { bestC = v; best = c } }
+      }
+    }
+    for (let i = 0; i < N; i++) y[outPos + i] += x[best + i] * (k === 0 && i < Ss ? 1 : win[i]);
+    prev = best;
+  }
+  return y.subarray(0, outLen);
+}
+
+/* ---------------- 日本語トラックの書き出し ----------------
+   テイク（伸縮・切り出し済み）を時間軸に並べて 1 本にする。mono に落とす。
+   サンプルレートが違うテイクは線形補間で合わせる */
+export function renderMix(takes, duration, sampleRate){
+  const n = Math.max(1, Math.ceil(duration * sampleRate));
+  const out = new Float32Array(n);
+  for (const { wav, offset } of takes) {
+    const g = 1 / wav.channels, start = Math.round((+offset || 0) * sampleRate);
+    const r = wav.sampleRate / sampleRate, len = Math.floor(wav.frames / r);
+    for (const c of wav.ch) {
+      for (let i = 0; i < len; i++) {
+        const o = start + i; if (o < 0) continue; if (o >= n) break;
+        if (r === 1) { out[o] += c[i] * g; continue }
+        const p = i * r, a = Math.floor(p), f = p - a, v = c[a] + (c[Math.min(wav.frames - 1, a + 1)] - c[a]) * f;
+        out[o] += v * g;
+      }
+    }
+  }
+  return out;
+}
+export function encodeWavFloat32(chs, sampleRate){
+  const channels = chs.length, frames = chs[0].length, bytes = frames * channels * 4;
+  const buf = new ArrayBuffer(44 + bytes), dv = new DataView(buf);
+  const str = (o, t) => { for (let i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)) };
+  str(0, "RIFF"); dv.setUint32(4, 36 + bytes, true); str(8, "WAVE");
+  str(12, "fmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 3, true); dv.setUint16(22, channels, true);
+  dv.setUint32(24, sampleRate, true); dv.setUint32(28, sampleRate * channels * 4, true); dv.setUint16(32, channels * 4, true); dv.setUint16(34, 32, true);
+  str(36, "data"); dv.setUint32(40, bytes, true);
+  let o = 44;
+  for (let i = 0; i < frames; i++) for (let c = 0; c < channels; c++) { dv.setFloat32(o, chs[c][i], true); o += 4 }
+  return buf;
+}
+
+/** テイクの帯（ファイル画面）：生の包絡全体。入り/出の外は薄く、発声は下線、入り/出の位置に取っ手 */
+export function drawTakeStrip(canvas, A, opt){
+  const { duration, tin = 0, tout = null, segs = [] } = opt;
+  const W = canvas.width, H = canvas.height, g = canvas.getContext("2d");
+  const end = tout == null ? duration : tout;
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = "#f2f2ec"; g.fillRect(0, 0, W, H);
+  const xOf = t => t / Math.max(0.01, duration) * W;
+  g.fillStyle = "#fbfbf9"; g.fillRect(xOf(tin), 0, Math.max(0, xOf(end) - xOf(tin)), H);
+  const perPx = Math.max(1, A.env.length / W), mid = H / 2;
+  for (let x = 0; x < W; x++) {
+    const a = Math.floor(x * perPx), b = Math.floor((x + 1) * perPx);
+    let mx = 0; for (let i = a; i < b && i < A.env.length; i++) if (A.env[i] > mx) mx = A.env[i];
+    const t = x / W * duration, inside = t >= tin && t <= end;
+    g.fillStyle = inside ? "#6c7075" : "#c8c8c0";
+    const h = Math.max(1, mx * (H - 6));
+    g.fillRect(x, mid - h / 2, 1, h);
+  }
+  g.fillStyle = "#16181a";
+  for (const [a, b] of segs) { const xs = xOf(a), xe = xOf(b); g.fillRect(xs, H - 2, Math.max(1, xe - xs), 2) }
+  for (const t of [tin, end]) { const x = Math.round(xOf(t)); g.fillRect(x - 1, 0, 2, H); g.fillRect(x - 4, 0, 8, 5); g.fillRect(x - 4, H - 5, 8, 5) }
 }
 
 /* ---------------- 書き出し：DAW への橋 ---------------- */
