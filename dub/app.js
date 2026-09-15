@@ -2,7 +2,7 @@
    app.js — 状態と配線
    ============================================================ */
 import * as C from "./core.js";
-import { renderSheet, renderMini, renderPlane, blockInfo, metaHTML } from "./view.js";
+import { renderSheet, renderMini, renderPlane, blockInfo, metaHTML, laneRedCount, pinBalanceHTML, pinFlowHTML, sectionAt } from "./view.js";
 import { SAMPLE } from "./sample.js";
 
 const $  = id => document.getElementById(id);
@@ -40,6 +40,7 @@ let saveTimer = null, saveDirty = false;
 function render({ save = true } = {}){
   S.rate  = C.effectiveRate(S.proj);
   S.limit = C.effectiveLimit(S.proj);
+  S.J     = C.judgeAll(S.proj, S.rate);
   if (S.plane) renderPlane(S); else renderSheet(S);
   renderMini(S);
   syncToolbar();
@@ -65,10 +66,11 @@ document.addEventListener("visibilitychange", () => {
 });
 
 function syncToolbar(){
-  const n = C.countReds(S.proj, S.rate);
+  let n = 0; for (const v of S.J.cells.values()) if (v.red) n++;
+  const so = S.J.sections.filter(s => s.over).length;
   const t = $("tally");
-  t.textContent = "赤 " + n;
-  t.classList.toggle("zero", n === 0);
+  t.textContent = "赤 " + n + (so ? "　区間 " + so : "");
+  t.classList.toggle("zero", n === 0 && so === 0);
   $("prevred").disabled = $("nextred").disabled = n === 0;
   $("dur").textContent = C.tc(C.projectEnd(S.proj));
   const base = C.baseRateOf(S.proj), sp = C.speedupOf(S.proj);
@@ -95,6 +97,7 @@ function syncToolbar(){
 function syncRate(){
   S.rate = C.effectiveRate(S.proj);
   S.limit = C.effectiveLimit(S.proj);
+  S.J = C.judgeAll(S.proj, S.rate);
 }
 
 function buildLaneButtons(){
@@ -168,10 +171,7 @@ function frame(){
 
 /* ---------------- 赤へ飛ぶ ---------------- */
 function redTimes(){
-  const out = [];
-  for (const { c, t, b } of C.eachCell(S.proj))
-    if (C.judgeCell(c, S.proj.dict, S.rate).over) out.push({ t, b });
-  return out;
+  return [...S.J.cells.values()].filter(v => v.red).map(v => ({ t: v.t, b: v.b })).sort((a, b) => a.t - b.t);
 }
 function jumpRed(dir){
   const r = redTimes();
@@ -341,6 +341,10 @@ sheet.addEventListener("input", e => {
   queueSave();
 });
 sheet.addEventListener("click", e => {
+  const pinAt = e.target.closest("[data-pin-at]");
+  if (pinAt) { togglePinAt(+pinAt.dataset.pinAt); return }
+  const pinRow = e.target.closest("[data-pin]");
+  if (pinRow && !e.target.closest(".card")) { togglePinAt(+pinRow.dataset.pin); return }
   const rec = e.target.closest("[data-rec]");
   if (rec) {
     const b = S.proj.blocks.find(x => x.id === rec.dataset.rec);
@@ -377,18 +381,40 @@ sheet.addEventListener("click", e => {
   const b = S.proj.blocks.find(x => x.id === S.sel);
   if (b) seek(b.t);
 });
-function repaintCell(bid, ci){
-  const b = S.proj.blocks.find(x => x.id === bid); if (!b) return;
-  const info = blockInfo(S, b), j = info.cells[ci];
-  const card = document.querySelector(`.card[data-b="${bid}"]`);
-  if (card) {
-    card.classList.toggle("over", info.over);
-    const cell = card.querySelector(`[data-cell="${ci}"]`);
-    cell?.classList.toggle("bad", j.over);
-    const meta = cell?.querySelector(".meta");
-    if (meta) meta.innerHTML = metaHTML(j) + `<button class="kanabtn" data-kana="${bid}:${ci}">よみ</button>`;
-  }
+function repaintCell(){
+  S.J = C.judgeAll(S.proj, S.rate);
+  refreshVerdicts();
   syncToolbar(); renderMini(S);
+}
+/* 区間があると、1セルの編集で同じ区間の他セルの判定も変わる。
+   シートは作り直さず（編集中のカーソルが飛ぶ）、印だけ全部貼り直す */
+function refreshVerdicts(){
+  for (const card of $$(".card[data-b]")) {
+    const b = S.proj.blocks.find(x => x.id === card.dataset.b); if (!b) continue;
+    const info = blockInfo(S, b);
+    card.classList.toggle("over", info.over);
+    card.querySelectorAll("[data-cell]").forEach(cell => {
+      const j = info.cells[+cell.dataset.cell]; if (!j) return;
+      cell.classList.toggle("bad", j.red);
+      const meta = cell.querySelector(".meta");
+      if (meta) meta.innerHTML = metaHTML(j) + `<button class="kanabtn" data-kana="${b.id}:${cell.dataset.cell}">よみ</button>`;
+    });
+  }
+  $$(".pincell[data-pin]").forEach(el => {
+    const t = +el.dataset.pin, li = +el.dataset.lane, s = sectionAt(S, t, li);
+    el.classList.toggle("over", !!(s && s.over));
+    el.innerHTML = pinBalanceHTML(S, t, li);
+  });
+  $$(".pinflow[data-pin]").forEach(el => { el.innerHTML = pinFlowHTML(S, +el.dataset.pin) });
+  $$("[data-lane-head]").forEach(el => {
+    const n = laneRedCount(S, +el.dataset.laneHead);
+    el.textContent = n ? "赤" + n : "—"; el.classList.toggle("red", n > 0);
+  });
+}
+function togglePinAt(t){
+  const on = C.togglePin(S.proj, t);
+  render();
+  toast(on ? `${C.tc(t)} にピンを打ちました${S.J.pins.length === 1 ? "（もう1本でひとつの区間になります）" : ""}` : "ピンを外しました");
 }
 
 /* --- 適合平面から飛ぶ --- */
@@ -425,6 +451,7 @@ addEventListener("keydown", e => {
     queueSave();
   }
   else if (k === "e" && S.sel) openBlock(S.sel);
+  else if (k === "p" && S.sel) { const b = selBlock(); if (b) togglePinAt(b.t) }
 });
 
 /* --- ダイアログ共通 --- */
@@ -706,6 +733,12 @@ $("fClearDo").addEventListener("click", () => {
   S.proj.blocks = S.proj.blocks.filter(b => b.lane !== li);
   if (S.sel && !S.proj.blocks.some(b => b.id === S.sel)) S.sel = null;
   render(); $("dlgFile").close(); toast(`${name} を空にしました`);
+});
+$("fPinsClear").addEventListener("click", () => {
+  const n = (S.proj.pins || []).length;
+  if (!n) return toast("ピンはありません");
+  if (!confirm(`ピン ${n} 本を全部外します。`)) return;
+  S.proj.pins = []; render(); $("dlgFile").close(); toast("ピンを全部外しました");
 });
 $("fAddBlock").addEventListener("click", () => {
   const b = C.newBlock({ t: Math.round(S.t * 10) / 10, lane: S.show.findIndex(Boolean), kind: "NARR" });

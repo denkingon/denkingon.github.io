@@ -23,6 +23,7 @@
         <div class="mrows" id="mrows"></div>
         <div class="msum" id="msum" title="赤の位置（レーンを畳んでも消えない）"></div>
         <div class="mticks" id="mticks"></div>
+        <div id="mpins"></div>
         <div id="mhead" style="left:0"></div>
       </div>
     </div>
@@ -230,6 +231,11 @@
       <button class="tg" id="fDict">読み辞書…</button>
     </div>
     <div class="row">
+      <label>ピン</label>
+      <button class="tg" id="fPinsClear">全部外す</button>
+      <span class="hint">左の時刻を押すと打てる。2本で1区間。区間の中は同じレーンの合計で判定する</span>
+    </div>
+    <div class="row">
       <label for="fClearLane">レーンを空にする</label>
       <select id="fClearLane"></select>
       <button class="tg" id="fClearDo">このレーンのブロックを全部消す</button>
@@ -262,6 +268,7 @@
       <b><kbd>O</kbd></b><span>原音の入り切り</span>
       <b><kbd>R</kbd></b><span>選択ブロックの録音ステータスを回す（未→仮→済）</span>
       <b><kbd>E</kbd></b><span>選択ブロックを編集</span>
+      <b><kbd>P</kbd></b><span>選択ブロックの頭にピンを打つ／外す</span>
       <b><kbd>F</kbd></b><span>列表示 ⇄ 流し表示</span>
       <b><kbd>Esc</kbd></b><span>閉じる</span>
     </div>

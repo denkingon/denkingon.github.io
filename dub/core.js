@@ -102,6 +102,7 @@ export function newProject(o = {}){
     limitRate: o.limitRate ?? 9.0,
     rateManual: o.rateManual ?? null,   // スライダーで仮に動かした値。null なら実測の中央値
     speedup: o.speedup ?? 1,            // 録音をあとで何倍速にするか。判定話速と限界に掛かる
+    pins: (o.pins ?? []).map(Number).filter(t => t >= 0).sort((a, b) => a - b),  // 手で打ったアンカー（秒）
     samples: o.samples ?? [],           // {kind:'base'|'limit', mora, sec, note, at}
     dict: o.dict ?? {},
     blocks: (o.blocks || []).map(newBlock),
@@ -163,9 +164,50 @@ export function judgeCell(cell, dict, rate){
   const req = dur > 0 ? mora / dur : Infinity;
   return { mora, exact, dur, cap, req, over: mora > cap, delta: mora - cap };
 }
+/* ---------------- ピンと区間 ----------------
+   ピン ＝ 手で打つアンカー（設計メモ2節）。ピンとピンの間は絵との同期を要求しないので、
+   同じレーンの中では前のセルの余裕を後ろのセルに回せる。判定は区間の合計で行う。
+   区間 ＝ ピン2本に挟まれた範囲。最初のピンより前・最後のピンより後は、いままで通りセル単位。
+   レーンをまたいでは回さない（ナレーションの余裕でキャシーのセルは救えない） */
+export const hasPin = (proj, t) => (proj.pins || []).some(p => Math.abs(p - t) < 0.05);
+export function togglePin(proj, t){
+  proj.pins = proj.pins || [];
+  const i = proj.pins.findIndex(p => Math.abs(p - t) < 0.05);
+  if (i >= 0) proj.pins.splice(i, 1); else proj.pins.push(+(+t).toFixed(3));
+  proj.pins.sort((a, b) => a - b);
+  return i < 0;                                   // true ＝ 打った
+}
+
+/** 全セルの判定。区間があればその合計で赤を決め直す。
+    red     … 赤。区間の外では個別に超過、区間の中では「区間が超過」かつ「自分も超過」
+    rescued … 個別には超過だが、区間の合計では入る */
+export function judgeAll(proj, rate){
+  const cells = new Map(), sections = [];
+  for (const { b, ci, c, t } of eachCell(proj)) {
+    const key = b.id + ":" + ci, j = judgeCell(c, proj.dict, rate);
+    cells.set(key, { ...j, key, b, ci, t, lane: b.lane, red: j.over, rescued: false, section: null });
+  }
+  const pins = [...(proj.pins || [])].sort((a, b) => a - b);
+  for (let i = 0; i + 1 < pins.length; i++) {
+    const t0 = pins[i], t1 = pins[i + 1];
+    for (let lane = 0; lane < proj.lanes.length; lane++) {
+      const inSec = [...cells.values()].filter(v => v.lane === lane && v.t >= t0 - 1e-6 && v.t < t1 - 1e-6);
+      if (!inSec.length) continue;
+      const mora   = inSec.reduce((s, v) => s + v.mora, 0);
+      const budget = inSec.reduce((s, v) => s + v.cap, 0);
+      const dur    = inSec.reduce((s, v) => s + v.dur, 0);
+      const balance = budget - mora;
+      const over = Math.round(balance) < 0;       // 端数は丸める。−0.4 は 0
+      const sec = { lane, t0, t1, mora, budget, dur, balance, over, keys: inSec.map(v => v.key) };
+      sections.push(sec);
+      for (const v of inSec) { v.section = sec; v.red = over && v.over; v.rescued = v.over && !over; }
+    }
+  }
+  return { cells, sections, pins };
+}
 export function countReds(proj, rate){
   let n = 0;
-  for (const { c } of eachCell(proj)) if (judgeCell(c, proj.dict, rate).over) n++;
+  for (const v of judgeAll(proj, rate).cells.values()) if (v.red) n++;
   return n;
 }
 
