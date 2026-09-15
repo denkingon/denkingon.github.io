@@ -71,8 +71,12 @@ function syncToolbar(){
   t.classList.toggle("zero", n === 0);
   $("prevred").disabled = $("nextred").disabled = n === 0;
   $("dur").textContent = C.tc(C.projectEnd(S.proj));
-  $("rateval").textContent = S.rate.toFixed(1) + " /秒";
-  $("rate").value = String(Math.min(12, Math.max(4, S.rate)));
+  const base = C.baseRateOf(S.proj), sp = C.speedupOf(S.proj);
+  $("rateval").textContent = base.toFixed(1) + " /秒";
+  $("rate").value = String(Math.min(12, Math.max(4, base)));
+  $("speedup").value = String(sp);
+  $("rateeff").hidden = sp === 1;
+  $("rateeff").textContent = "→ " + S.rate.toFixed(1) + " /秒";
 
   const med = C.measuredRate(S.proj, "base");
   const nb = S.proj.samples.filter(s => s.kind === "base").length;
@@ -295,6 +299,11 @@ $("rate").addEventListener("input", e => {
   S.proj.rateManual = parseFloat(e.target.value);
   render();
 });
+$("speedup").addEventListener("change", e => {
+  S.proj.speedup = parseFloat(e.target.value) || 1;
+  render();
+  toast(S.proj.speedup === 1 ? "等速で判定" : `録音を ${S.proj.speedup}× にする前提で判定`);
+});
 $("measure").addEventListener("click", openRate);
 $("prevred").addEventListener("click", () => jumpRed(-1));
 $("nextred").addEventListener("click", () => jumpRed(1));
@@ -437,12 +446,11 @@ function drawRate(){
   $("medval").textContent = med ? med.toFixed(1) : "—";
   const list = S.proj.samples.filter(s => s.kind === rateKind);
   $("medsrc").textContent = list.length ? list.length + " 件の中央値" : "まだ測っていない";
-  const rs = list.map(s => s.mora / s.sec);
   $("sampleList").innerHTML = list.length ? list.map((s, i) => {
-    const r = s.mora / s.sec;
+    const r = C.sampleRate(s);
     const isMed = med != null && Math.abs(r - med) < 1e-9;
     return `<li class="${isMed ? "med" : ""}"><span>${r.toFixed(2)} /秒</span>` +
-      `<span style="color:var(--ctext2)">${s.mora}モーラ / ${s.sec.toFixed(1)}秒</span>` +
+      `<span style="color:var(--ctext2)">${s.rate > 0 ? "直接入力" : s.mora + "モーラ / " + s.sec.toFixed(1) + "秒"}</span>` +
       (s.note ? `<span class="tagm">${s.note}</span>` : "") +
       (isMed ? `<span class="tagm">中央値</span>` : "") +
       `<button data-del="${i}" aria-label="削除">×</button></li>`;
@@ -494,6 +502,14 @@ $("stopwatch").addEventListener("click", () => {
       $("swval").innerHTML = ((performance.now() - swStart) / 1000).toFixed(1) + "<small>秒</small>";
     }, 100);
   }
+});
+$("addDirect").addEventListener("click", () => {
+  const r = parseFloat($("directRate").value);
+  if (!(r > 0)) return toast("話速（/秒）を入れてください");
+  S.proj.samples.push({ kind: rateKind, rate: +r.toFixed(2), note: $("directNote").value.trim() || "直接入力", at: Date.now() });
+  if (rateKind === "base" && S.proj.rateManual != null) S.proj.rateManual = null;
+  $("directRate").value = ""; $("directNote").value = "";
+  drawRate(); syncRate(); render(); toast("記録しました");
 });
 $("addManual").addEventListener("click", () => {
   addSample(scriptMora(), parseFloat($("manualSec").value), "手入力");

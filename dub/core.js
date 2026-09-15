@@ -101,6 +101,7 @@ export function newProject(o = {}){
     baseRate: o.baseRate ?? 7.0,
     limitRate: o.limitRate ?? 9.0,
     rateManual: o.rateManual ?? null,   // スライダーで仮に動かした値。null なら実測の中央値
+    speedup: o.speedup ?? 1,            // 録音をあとで何倍速にするか。判定話速と限界に掛かる
     samples: o.samples ?? [],           // {kind:'base'|'limit', mora, sec, note, at}
     dict: o.dict ?? {},
     blocks: (o.blocks || []).map(newBlock),
@@ -138,18 +139,21 @@ export function median(xs){
   const a = [...xs].sort((p, q) => p - q), m = a.length >> 1;
   return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
 }
+/** 記録1件の話速。外で測った値は rate をそのまま持つ */
+export const sampleRate = s => s.rate > 0 ? s.rate : (s.sec > 0 ? s.mora / s.sec : null);
 export function measuredRate(proj, kind = "base"){
-  const rs = proj.samples.filter(s => s.kind === kind && s.sec > 0).map(s => s.mora / s.sec);
+  const rs = proj.samples.filter(s => s.kind === kind).map(sampleRate).filter(r => r > 0);
   return median(rs);
 }
-/** 実際に判定に使う基準話速。手で動かしていればその値、なければ実測の中央値、それも無ければ仮値 */
-export function effectiveRate(proj){
+/** 倍速を掛ける前の基準話速。手で動かしていればその値、なければ実測の中央値、それも無ければ仮値 */
+export function baseRateOf(proj){
   if (proj.rateManual != null) return proj.rateManual;
   return measuredRate(proj, "base") ?? proj.baseRate;
 }
-export function effectiveLimit(proj){
-  return measuredRate(proj, "limit") ?? proj.limitRate;
-}
+export const speedupOf = proj => (proj.speedup > 0 ? proj.speedup : 1);
+/** 実際に判定に使う話速 ＝ 基準 × 倍速。録音を 1.1 倍にするなら、入る量も 1.1 倍になる */
+export const effectiveRate  = proj => baseRateOf(proj) * speedupOf(proj);
+export const effectiveLimit = proj => (measuredRate(proj, "limit") ?? proj.limitRate) * speedupOf(proj);
 
 /* ---------------- 判定 ---------------- */
 export function judgeCell(cell, dict, rate){

@@ -246,8 +246,10 @@ export function renderPlane(S){
         `<td><div class="ja">${esc(p.ja)}</div></td></tr>`).join("")
     : `<tr><td colspan="6" style="color:#6d7378">赤はありません。</td></tr>`;
 
+  const sp = S.proj.speedup > 0 ? S.proj.speedup : 1;
   document.getElementById("planestat").textContent =
-    `${pts.length} セル中 ${pts.filter(p => p.over).length} 件が線の上。基準 ${S.rate.toFixed(1)} /秒・限界 ${S.limit.toFixed(1)} /秒`;
+    `${pts.length} セル中 ${pts.filter(p => p.over).length} 件が線の上。基準 ${S.rate.toFixed(1)} /秒・限界 ${S.limit.toFixed(1)} /秒` +
+    (sp !== 1 ? `（録音 ${sp}× 前提）` : "");
   S.planePts = pts;
 }
 
