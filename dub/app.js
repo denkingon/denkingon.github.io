@@ -64,6 +64,7 @@ function flushSave(){
   clearTimeout(saveTimer); saveDirty = false;
   C.saveLocal(S.proj);
   $("fSaved").textContent = "自動保存 " + new Date().toLocaleTimeString("ja-JP");
+  scheduleDirWrite();
 }
 // 閉じる・隠れるときは待たずに書く。数百ミリ秒の取りこぼしで原稿を失わせない
 addEventListener("pagehide", flushSave);
@@ -827,9 +828,56 @@ $("blkDel").addEventListener("click", () => {
 /* ============================================================
    ファイルと設定
    ============================================================ */
-$("fSave").addEventListener("click", () => {
-  const name = (S.proj.title || "dub").replace(/[^\w　-鿿-]+/g, "_");
-  C.download(name + ".dubproj.json", JSON.stringify(S.proj, null, 2));
+/* 書き出し先フォルダ（File System Access API）。選んだフォルダの handle は IndexedDB に残す */
+const DIR = { handle: null, name: "", lastWrite: 0, timer: 0 };
+const dirDB = () => new Promise((res, rej) => {
+  const r = indexedDB.open("dub.palette.dir", 1);
+  r.onupgradeneeded = () => r.result.createObjectStore("kv");
+  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+});
+async function dirGet(){ try { const db = await dirDB(); return await new Promise((res, rej) => { const q = db.transaction("kv").objectStore("kv").get("dir"); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error) }) } catch { return null } }
+async function dirPut(h){ try { const db = await dirDB(); await new Promise((res, rej) => { const tx = db.transaction("kv", "readwrite"); if (h) tx.objectStore("kv").put(h, "dir"); else tx.objectStore("kv").delete("dir"); tx.oncomplete = res; tx.onerror = () => rej(tx.error) }) } catch {} }
+const projFileName = () => (S.proj.title || "dub").replace(/[^\w　-鿿-]+/g, "_") + ".dubproj.json";
+function syncDirUI(){
+  $("fDirName").textContent = DIR.handle ? `${DIR.name}／${projFileName()}` : "未設定（ブラウザのダウンロード先に落ちる）";
+  $("fDirClear").hidden = !DIR.handle;
+  if (!("showDirectoryPicker" in window)) { $("fDir").disabled = true; $("fDir").title = "このブラウザでは使えない（Chrome / Edge）"; }
+}
+async function dirPermitted(ask){
+  if (!DIR.handle) return false;
+  try {
+    const opt = { mode: "readwrite" };
+    if (await DIR.handle.queryPermission(opt) === "granted") return true;
+    return ask ? await DIR.handle.requestPermission(opt) === "granted" : false;
+  } catch { return false }
+}
+async function writeToDir(ask){
+  if (!await dirPermitted(ask)) return false;
+  const fh = await DIR.handle.getFileHandle(projFileName(), { create: true });
+  const w = await fh.createWritable();
+  await w.write(JSON.stringify(S.proj, null, 2)); await w.close();
+  DIR.lastWrite = Date.now();
+  return true;
+}
+// 自動保存のたびに Dropbox を叩かないよう、フォルダへの書き込みは 3 秒に 1 回にまとめる
+function scheduleDirWrite(){
+  if (!DIR.handle) return;
+  clearTimeout(DIR.timer);
+  DIR.timer = setTimeout(() => writeToDir(false).then(ok => { if (ok) $("fSaved").textContent = `自動保存 → ${DIR.name} ${new Date().toLocaleTimeString("ja-JP")}` }).catch(() => {}), Math.max(0, 3000 - (Date.now() - DIR.lastWrite)));
+}
+dirGet().then(h => { if (h && h.kind === "directory") { DIR.handle = h; DIR.name = h.name; } syncDirUI(); });
+$("fDir").addEventListener("click", async () => {
+  try {
+    const h = await window.showDirectoryPicker({ mode: "readwrite", id: "dub-json" });
+    DIR.handle = h; DIR.name = h.name; await dirPut(h); syncDirUI();
+    if (await writeToDir(true)) toast(`${DIR.name} に書き出しました`);
+  } catch (e) { if (e && e.name !== "AbortError") toast("フォルダを開けませんでした") }
+});
+$("fDirClear").addEventListener("click", async () => { DIR.handle = null; DIR.name = ""; await dirPut(null); syncDirUI(); });
+$("fSave").addEventListener("click", async () => {
+  try { if (await writeToDir(true)) { toast(`${DIR.name}／${projFileName()} に書き出しました`); return } }
+  catch { toast("フォルダに書けなかったのでダウンロードに切り替えます") }
+  C.download(projFileName(), JSON.stringify(S.proj, null, 2));
   toast("書き出しました");
 });
 $("fLoad").addEventListener("change", async e => {

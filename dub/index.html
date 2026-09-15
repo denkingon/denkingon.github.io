@@ -231,6 +231,13 @@
       <span class="hint" id="fSaved"></span>
     </div>
     <div class="row">
+      <button class="tg" id="fDir">書き出し先フォルダを選ぶ…</button>
+      <span class="hint" id="fDirName">未設定（ブラウザのダウンロード先に落ちる）</span>
+      <button class="tg" id="fDirClear" hidden>解除</button>
+    </div>
+    <p class="note">フォルダを選ぶと「JSON を書き出す」はそこへ直接書き、自動保存も同じファイルに書き続ける
+      （Dropbox の中を選べば、そのまま同期される）。Chrome / Edge のみ。</p>
+    <div class="row">
       <button class="tg" id="fNew">新規（空）</button>
       <button class="tg" id="fSample">サンプルを読み込む</button>
       <button class="tg" id="fAddBlock">ブロックを足す</button>
