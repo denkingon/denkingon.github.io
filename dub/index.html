@@ -243,6 +243,20 @@
       <button class="tg" id="fAddBlock">ブロックを足す</button>
       <button class="tg" id="fDict">読み辞書…</button>
     </div>
+    <h3>本番の録音</h3>
+    <div class="row">
+      <label for="recOffset">開始位置</label>
+      <input type="text" id="recOffset" value="0:00.0" style="width:6em" title="WAV の 0:00 が、動画のどこに当たるか（mm:ss.s か秒）">
+      <button class="tg" id="recToSel">選んだブロックの頭に</button>
+      <span class="hint">1 分のテイクなど、頭から録っていない WAV はここで置く</span>
+    </div>
+    <div class="row">
+      <label for="recThr">声のしきい値</label>
+      <input type="range" id="recThr" min="-60" max="-10" step="1" value="-40" style="width:12em">
+      <span class="hint" id="recThrVal">自動</span>
+      <button class="tg" id="recAuto">自動に戻す</button>
+    </div>
+    <p class="note" id="recDiag">録音なし</p>
     <div class="row">
       <label>DAW へ</label>
       <button class="tg" id="fLabels">Audacity ラベル</button>

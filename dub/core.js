@@ -102,6 +102,8 @@ export function newProject(o = {}){
     limitRate: o.limitRate ?? 9.0,
     rateManual: o.rateManual ?? null,   // スライダーで仮に動かした値。null なら実測の中央値
     speedup: o.speedup ?? 1,            // 録音をあとで何倍速にするか。判定話速と限界に掛かる
+    recOffset: +(o.recOffset ?? 0) || 0,   // 本番の録音の開始位置（秒）。WAV の 0:00 が時間軸のどこか
+    recThr: o.recThr > 0 ? +o.recThr : null, // 声のしきい値（rms）。null なら自動
     pins: (o.pins ?? []).map(Number).filter(t => t >= 0).sort((a, b) => a - b),  // 手で打ったアンカー（秒）
     samples: o.samples ?? [],           // {kind:'base'|'limit', mora, sec, note, at}
     dict: o.dict ?? {},

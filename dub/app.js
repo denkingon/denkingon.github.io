@@ -145,6 +145,60 @@ function computeTakes(){
   }
 }
 
+/* 録音の置き場所（開始位置）としきい値を反映して、発声を検出し直す。
+   segs は時間軸の秒（WAV の秒 + 開始位置）、raw は WAV の秒 */
+function redetect(){
+  if (!S.wav) { render(); frame(); syncRecUI(); return }
+  const off = +S.proj.recOffset || 0;
+  const r = AU.speechSegments(S.wav.A.rms, { thr: S.proj.recThr });
+  Object.assign(S.wav, { raw: r.segs, segs: r.segs.map(([a, b]) => [a + off, b + off]), thr: r.thr, floor: r.floor, loud: r.loud, auto: r.auto, offset: off });
+  player.setOffset(off);
+  if (!S.hasMedia) S.proj.duration = Math.max(S.proj.duration || 0, off + S.wav.duration);
+  render(); frame(); drawMiniWave(); syncRecUI();
+}
+function syncRecUI(){
+  const w = S.wav;
+  $("wavhint").textContent = w ? `${w.name}　${w.format} ${w.sampleRate}Hz ${w.channels}ch ${C.tc(w.duration)}　発声 ${w.segs.length}` : "録音なし";
+  const off = +S.proj.recOffset || 0;
+  if (document.activeElement !== $("recOffset")) $("recOffset").value = tcTenth(off);
+  const manual = S.proj.recThr > 0;
+  $("recThr").value = Math.round(AU.dB(manual ? S.proj.recThr : (w ? w.thr : 0.01)));
+  $("recThrVal").textContent = (manual ? "" : "自動 ") + `${Math.round(AU.dB(manual ? S.proj.recThr : (w ? w.thr : 0.01)))} dBFS`;
+  $("recAuto").hidden = !manual;
+  if (!w) { $("recDiag").textContent = "録音なし。上の「録音…」で WAV を読む"; return }
+  const onSlot = S.takes ? [...S.takes.values()].filter(t => t.take).length : 0;
+  const nSlot = S.takes ? S.takes.size : 0;
+  $("recDiag").textContent =
+    `雑音床 ${Math.round(AU.dB(w.floor))} dBFS ／ 声の大きさ ${Math.round(AU.dB(w.loud))} dBFS ／ しきい値 ${Math.round(AU.dB(w.thr))} dBFS` +
+    `　→　発声 ${w.segs.length} 箇所、${nSlot} 枠のうち ${onSlot} 枠に録音が載った` +
+    (w.segs.length === 0 ? "。何も拾えていない。しきい値を下げてみる" : onSlot === 0 ? "。どの枠にも載っていない。開始位置がずれている" : "");
+}
+/** 0:52.3 のように十分の一秒まで（開始位置の欄用） */
+function tcTenth(t){
+  const s = Math.max(0, +t || 0), m = Math.floor(s / 60), r = s - m * 60;
+  return `${m}:${r < 10 ? "0" : ""}${r.toFixed(1)}`;
+}
+/** "1:23.4" / "83.4" / "0:01:23" を秒に */
+function parseTC(s){
+  const parts = String(s).trim().split(":").map(x => x.trim()).filter(x => x !== "");
+  if (!parts.length || parts.some(x => isNaN(+x))) return null;
+  return parts.reduce((acc, x) => acc * 60 + +x, 0);
+}
+$("recOffset").addEventListener("change", e => {
+  const v = parseTC(e.target.value);
+  if (v === null || v < 0) { e.target.value = tcTenth(S.proj.recOffset); toast("時刻の形が読めない（1:23.4 か秒）"); return }
+  S.proj.recOffset = +v.toFixed(3); redetect(); queueSave();
+});
+$("recToSel").addEventListener("click", () => {
+  const b = selBlock(); if (!b) { toast("先にブロックを選ぶ"); return }
+  S.proj.recOffset = +b.t.toFixed(3); redetect(); queueSave();
+  toast(`録音の頭を ${C.tc(b.t)} に置いた`);
+});
+$("recThr").addEventListener("input", e => {
+  S.proj.recThr = AU.fromDB(+e.target.value); redetect(); queueSave();
+});
+$("recAuto").addEventListener("click", () => { S.proj.recThr = null; redetect(); queueSave(); });
+
 /* 波形の帯：見えたカードから描く */
 const wio = new IntersectionObserver(es => {
   for (const e of es) if (e.isIntersecting) drawWaveFor(e.target.dataset.wave);
@@ -161,7 +215,7 @@ function drawWaveFor(id){
   const [s0, s1] = tk.slot, m = Math.max(0.3, (s1 - s0) * 0.08);
   let t = b.t; const ticks = [];
   b.cells.slice(0, -1).forEach(c => { t += +c.dur || 0; ticks.push(t) });
-  AU.drawWave(canvas, S.wav.A, { t0: s0 - m, t1: s1 + m, slot: tk.slot, take: tk.take, ticks, red: tk.over });
+  AU.drawWave(canvas, S.wav.A, { t0: s0 - m, t1: s1 + m, slot: tk.slot, take: tk.take, ticks, red: tk.over, offset: +S.proj.recOffset || 0 });
   const meta = document.querySelector(`.wmeta[data-wmeta="${id}"]`);
   if (meta) {
     const tkk = tk.take;
@@ -179,10 +233,10 @@ function drawMiniWave(){
   const W = cv.clientWidth || 300; cv.width = W;
   const g = cv.getContext("2d"), H = cv.height, end = END() || 1;
   g.clearRect(0, 0, W, H);
-  const A = S.wav.A, perPx = (end / AU.BIN) / W;
+  const A = S.wav.A, perPx = (end / AU.BIN) / W, offB = (+S.proj.recOffset || 0) / AU.BIN;
   g.fillStyle = "#5a6167";
   for (let x = 0; x < W; x++) {
-    const a = Math.floor(x * perPx), b = Math.floor((x + 1) * perPx);
+    const a = Math.max(0, Math.floor(x * perPx - offB)), b = Math.floor((x + 1) * perPx - offB);
     let mx = 0; for (let i = a; i < b && i < A.env.length; i++) if (A.env[i] > mx) mx = A.env[i];
     const h = Math.max(1, mx * (H - 2));
     g.fillRect(x, H / 2 - h / 2, 1, h);
@@ -395,16 +449,14 @@ $("wavfile").addEventListener("change", async e => {
   $("wavhint").textContent = "読んでいます…";
   try {
     const wav = AU.parseWav(await f.arrayBuffer());
-    const A = AU.envelope(wav), { segs, thr } = AU.speechSegments(A.rms);
+    const A = AU.envelope(wav);
     player.load(wav);
     wav.ch = null;                                   // 波形は包絡から描くので、生データは手放す
     S.wav = { name: f.name, format: wav.format, sampleRate: wav.sampleRate, channels: wav.channels,
-              duration: wav.duration, A, segs, thr };
-    if (!S.hasMedia) S.proj.duration = Math.max(S.proj.duration || 0, wav.duration);
-    $("wavhint").textContent = `${f.name}　${wav.format} ${wav.sampleRate}Hz ${wav.channels}ch ${C.tc(wav.duration)}`;
+              duration: wav.duration, A, segs: [], raw: [], thr: 0 };
     $("jaon").disabled = false;
-    render(); frame(); drawMiniWave();
-    toast(`録音を読みました。発声 ${segs.length} 箇所`);
+    redetect();
+    toast(`録音を読みました。発声 ${S.wav.segs.length} 箇所`);
   } catch (err) {
     $("wavhint").textContent = "録音なし";
     toast("読めませんでした: " + (err && err.message || err));
@@ -885,7 +937,7 @@ $("fLoad").addEventListener("change", async e => {
   try {
     const p = C.newProject(JSON.parse(await f.text()));
     S.proj = p; S.show = p.lanes.map(() => true); S.sel = null; S.frames = Object.create(null);
-    buildLaneButtons(); syncRate(); render(); $("dlgFile").close();
+    buildLaneButtons(); syncRate(); redetect(); $("dlgFile").close();
     toast("読み込みました");
   } catch { toast("読めませんでした") }
   e.target.value = "";
