@@ -63,12 +63,24 @@ export function envelope(wav){
 }
 
 /* ---------------- 発声区間 ----------------
-   閾値はファイルごとに決める（雑音床の 4 倍、下限 −40 dBFS）。
+   閾値はファイルごとに決める。雑音床（静かな方の 5% の中央値）の 4 倍、下限 −50 dBFS。
+   ただし声が密なファイル（1 分のテイクなど）で雑音床が声に食い込んでも拾えるよう、
+   大きい方（上位 5%）の 15% を超えない。opt.thr で手動の値に置き換えられる。
    入りは 10ms、抜けは 250ms の粘り。80ms 未満は捨てる */
-export function speechSegments(rms){
+export function noiseStats(rms){
   const sorted = Float32Array.from(rms).sort();
-  const floor = sorted[Math.floor(sorted.length * 0.2)] || 0;
-  const thr = Math.max(0.01, floor * 4), low = thr * 0.6;
+  const n = sorted.length;
+  const q = f => sorted[Math.min(n - 1, Math.max(0, Math.floor(n * f)))] || 0;
+  const floor = q(0.025), loud = q(0.95);                // 静かな側 5% の中央値、上位 5%
+  // 雑音床が声に近い（部屋鳴り）ときは上限に引っかかるので、床の 1.5 倍は下回らないようにする
+  const auto = Math.max(floor * 1.5 + 0.0005, Math.min(Math.max(floor * 4, 0.003), Math.max(loud * 0.15, 0.0005)));
+  return { floor, loud, auto };
+}
+export const dB = v => v > 0 ? 20 * Math.log10(v) : -Infinity;
+export const fromDB = d => Math.pow(10, d / 20);
+export function speechSegments(rms, opt = {}){
+  const st = noiseStats(rms);
+  const thr = opt.thr > 0 ? opt.thr : st.auto, low = thr * 0.6;
   const onN = 2, offN = 50, minLen = 16;
   const segs = [];
   let on = false, start = 0, above = 0, below = 0;
@@ -83,7 +95,7 @@ export function speechSegments(rms){
     }
   }
   if (on && rms.length - start >= minLen) segs.push([start * BIN, rms.length * BIN]);
-  return { segs, thr };
+  return { segs, thr, floor: st.floor, loud: st.loud, auto: st.auto, manual: !!(opt.thr > 0) };
 }
 
 /** 枠 [t0,t1] に掛かる発声の広がり。無ければ null */
@@ -97,7 +109,7 @@ export function takeFor(segs, t0, t1){
 /* ---------------- 描画 ----------------
    [t0,t1] の包絡を canvas に描く。枠の外（余白）は薄く、はみ出した発声は赤 */
 export function drawWave(canvas, A, opt){
-  const { t0, t1, slot, take, ticks = [], red = false } = opt;
+  const { t0, t1, slot, take, ticks = [], red = false, offset = 0 } = opt;
   const W = canvas.width, H = canvas.height, g = canvas.getContext("2d");
   g.clearRect(0, 0, W, H);
   const span = t1 - t0, xOf = t => (t - t0) / span * W;
@@ -105,7 +117,7 @@ export function drawWave(canvas, A, opt){
   g.fillStyle = "#f2f2ec";
   g.fillRect(xOf(slot[0]), 0, xOf(slot[1]) - xOf(slot[0]), H);
   // 包絡
-  const mid = H / 2, b0 = Math.floor(t0 / BIN), b1 = Math.ceil(t1 / BIN);
+  const mid = H / 2, b0 = Math.floor((t0 - offset) / BIN), b1 = Math.ceil((t1 - offset) / BIN);
   const perPx = Math.max(1, (b1 - b0) / W);
   for (let x = 0; x < W; x++) {
     const a = b0 + Math.floor(x * perPx), b = b0 + Math.floor((x + 1) * perPx);
@@ -133,7 +145,7 @@ export function drawWave(canvas, A, opt){
    映像があれば映像が時計。無ければ AudioContext が時計 */
 export class WavPlayer {
   constructor(){ this.ctx = null; this.buffer = null; this.gain = null; this.src = null;
-                 this.playing = false; this.startCtx = 0; this.startT = 0; this.rate = 1; this.on = true }
+                 this.playing = false; this.startCtx = 0; this.startT = 0; this.rate = 1; this.on = true; this.offset = 0 }
   load(wav){
     if (!this.ctx) { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); this.gain = this.ctx.createGain(); this.gain.connect(this.ctx.destination) }
     this.stop();
@@ -141,15 +153,17 @@ export class WavPlayer {
     wav.ch.forEach((c, i) => this.buffer.copyToChannel(c, i));
     this.gain.gain.value = this.on ? 1 : 0;
   }
+  /** t は時間軸の秒。WAV の中では t - offset。手前なら待ってから鳴らす */
   play(t){
     if (!this.buffer) return;
     this.stop();
     this.ctx.resume();
+    const at = t - this.offset;
+    if (at >= this.buffer.duration - 0.01) { this.startT = t; return }
     const src = this.ctx.createBufferSource();
     src.buffer = this.buffer; src.playbackRate.value = this.rate; src.connect(this.gain);
-    const at = Math.max(0, Math.min(this.buffer.duration - 0.01, t));
-    src.start(0, at);
-    this.src = src; this.startCtx = this.ctx.currentTime; this.startT = at; this.playing = true;
+    if (at < 0) src.start(this.ctx.currentTime + (-at) / this.rate, 0); else src.start(0, at);
+    this.src = src; this.startCtx = this.ctx.currentTime; this.startT = t; this.playing = true;
     src.onended = () => { if (this.src === src) { this.playing = false; this.src = null } };
   }
   stop(){ if (this.src) { try { this.src.onended = null; this.src.stop() } catch {} this.src.disconnect(); this.src = null } this.playing = false }
@@ -157,6 +171,7 @@ export class WavPlayer {
   seek(t){ const was = this.playing; this.startT = t; if (was) this.play(t) }
   setRate(r){ this.rate = r; if (this.playing) this.play(this.now()) }
   setOn(v){ this.on = v; if (this.gain) this.gain.gain.value = v ? 1 : 0 }
+  setOffset(o){ const was = this.playing, t = this.now(); this.offset = o; if (was) this.play(t) }
 }
 
 /* ---------------- 書き出し：DAW への橋 ---------------- */
