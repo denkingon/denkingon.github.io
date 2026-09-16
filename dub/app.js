@@ -1223,3 +1223,6 @@ new ResizeObserver(topH).observe($("top"));
 
 boot();
 topH();
+
+// ここまで来れば起動は成功。以降のエラーは起動失敗の帯には出さない
+window.__bootOK = true;
