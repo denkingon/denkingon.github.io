@@ -40,8 +40,19 @@ function applyDict(text, dict){
 }
 
 /** 訳文から推定。{ mora, exact } */
+/* ---------------- ハイライト ----------------
+   訳文の中で《…》で囲んだ範囲。カードでは地の色で塗って見せる（色は赤だけ、の掟なので灰）。
+   モーラ数・SRT・見出しでは記号を外す */
+export const HL_OPEN = "《", HL_CLOSE = "》";
+export const plainJa = s => String(s ?? "").replace(/[《》]/g, "");
+export function highlightsOf(s){
+  const out = [], re = /《([^《》]*)》/g; let m;
+  while ((m = re.exec(String(s ?? "")))) if (m[1].trim()) out.push(m[1].trim());
+  return out;
+}
+
 export function estimateMora(text, dict){
-  const s = applyDict(String(text || ""), dict);
+  const s = applyDict(plainJa(text), dict);
   let m = 0, exact = true, i = 0;
   while (i < s.length) {
     const ch = s[i];
@@ -302,7 +313,7 @@ export function cuesToBlocks(cues, { gap = 0.7, lane = 0, kind = "LIP" } = {}){
 export function toSRT(proj, { field = "ja" } = {}){
   let n = 0, out = [];
   for (const { c, t } of eachCell(proj)) {
-    const txt = (field === "ja" ? c.ja : c.en || "").trim();
+    const txt = (field === "ja" ? plainJa(c.ja) : field === "hl" ? highlightsOf(c.ja).join("／") : c.en || "").trim();
     if (!txt) continue;
     n++;
     out.push(n + "\n" + srtTime(t) + " --> " + srtTime(t + (+c.dur || 0)) + "\n" + txt + "\n");

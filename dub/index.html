@@ -7,15 +7,15 @@
 <meta name="description" content="固定された秒数の枠に日本語が入るかどうかを、カードを開かずに見つけるための吹き替え作業画面。">
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%231a1c1e'/%3E%3Crect x='18' y='20' width='64' height='12' fill='%234d545a'/%3E%3Crect x='18' y='44' width='64' height='12' fill='%23c03a2b'/%3E%3Crect x='18' y='68' width='40' height='12' fill='%234d545a'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=202609160935">
+<link rel="stylesheet" href="style.css?v=202609160944">
 <!-- 版の固定：index.html を読み直せば JS 全部が同じ版で揃う（GitHub Pages のキャッシュで新旧が混ざらないように）。
      stamp.mjs で ?v= を一括更新する -->
 <script type="importmap">
 { "imports": {
-  "./core.js":   "./core.js?v=202609160935",
-  "./view.js":   "./view.js?v=202609160935",
-  "./audio.js":  "./audio.js?v=202609160935",
-  "./sample.js": "./sample.js?v=202609160935"
+  "./core.js":   "./core.js?v=202609160944",
+  "./view.js":   "./view.js?v=202609160944",
+  "./audio.js":  "./audio.js?v=202609160944",
+  "./sample.js": "./sample.js?v=202609160944"
 } }
 </script>
 <script>
@@ -263,6 +263,7 @@
       <input type="file" id="fLoad" accept=".json,application/json" hidden>
       <button class="tg" id="fImport">SRT / VTT を取り込む…</button>
       <button class="tg" id="fSrt">訳文を SRT で書き出す</button>
+      <button class="tg" id="fSrtHl" title="《…》で囲んだ部分だけを、そのセルの時刻で">ハイライトを SRT で</button>
     </div>
     <div class="row">
       <label for="fTitle">題</label><input type="text" id="fTitle" style="flex:1">
@@ -365,8 +366,9 @@
 
 <div class="vwin" id="vwin" hidden><video id="media" playsinline preload="auto"></video></div>
 <video id="grabber" hidden playsinline preload="auto" muted></video>
+<div id="hlbar" hidden><button class="tg" id="hlbtn">ハイライト</button><span class="hint">⌘⇧H</span></div>
 <canvas id="canvas" hidden width="320" height="180"></canvas>
 
-<script type="module" src="app.js?v=202609160935"></script>
+<script type="module" src="app.js?v=202609160944"></script>
 </body>
 </html>

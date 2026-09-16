@@ -424,3 +424,10 @@ kbd{
 .take table.clips td.num{text-align:right;font-variant-numeric:tabular-nums}
 .take table.clips td.bad{color:#c03a2b;font-weight:600}
 .take table.clips button{padding:1px 7px;font:inherit}
+
+/* ---- 訳文のハイライト（《…》）。色は赤だけ、の掟なので灰の地 ---- */
+.ja mark{background:#dcdcd4; color:inherit; padding:.02em .14em; border-radius:2px; -webkit-box-decoration-break:clone; box-decoration-break:clone}
+.ja:focus mark{background:#d0d0c6}
+#hlbar{position:fixed; z-index:60; background:#1a1c1e; color:#e4e8eb; border:1px solid #3a3e42; padding:4px 6px;
+  display:flex; gap:8px; align-items:center; font-size:12px; box-shadow:0 4px 14px rgba(0,0,0,.35); border-radius:2px}
+#hlbar .hint{color:#9ba1a7}

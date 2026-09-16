@@ -289,7 +289,7 @@ export function toAudacityLabels(proj, tc){
   for (const t of proj.pins || []) lines.push(`${t.toFixed(3)}\t${t.toFixed(3)}\tPIN ${tc(t)}`);
   for (const b of proj.blocks) {
     const dur = b.kind === "SILENT" ? (b.dur || 0) : b.cells.reduce((s, c) => s + (+c.dur || 0), 0);
-    const head = (b.cells?.[0]?.ja || b.cells?.[0]?.en || "").slice(0, 24).replace(/\s+/g, " ");
+    const head = (b.cells?.[0]?.ja || b.cells?.[0]?.en || "").replace(/[《》]/g, "").slice(0, 24).replace(/\s+/g, " ");
     lines.push(`${b.t.toFixed(3)}\t${(b.t + dur).toFixed(3)}\t${proj.lanes[b.lane]}${head ? " " + head : ""}`);
   }
   return lines.join("\n") + "\n";

@@ -2,7 +2,7 @@
    app.js — 状態と配線
    ============================================================ */
 import * as C from "./core.js";
-import { renderSheet, renderMini, renderPlane, blockInfo, metaHTML, laneRedCount, pinBalanceHTML, pinFlowHTML, sectionAt } from "./view.js";
+import { renderSheet, renderMini, renderPlane, blockInfo, metaHTML, laneRedCount, pinBalanceHTML, pinFlowHTML, sectionAt, jaHTML } from "./view.js";
 import { SAMPLE } from "./sample.js";
 import * as AU from "./audio.js";
 
@@ -355,7 +355,7 @@ function clipTableHTML(m, clips){
     const b = S.proj.blocks.find(x => x.id === c.block);
     if (!b) return "";
     const slot = C.blockDur(b), dur = (c.out - c.in) / m.speed, bal = slot - dur, shift = c.at - b.t;
-    const head = (b.cells[0] && (b.cells[0].ja || b.cells[0].en) || "").replace(/\s+/g, " ").slice(0, 22);
+    const head = C.plainJa(b.cells[0] && (b.cells[0].ja || b.cells[0].en) || "").replace(/\s+/g, " ").slice(0, 22);
     return `<tr data-clip="${escT(c.block)}">
       <td class="num">${C.tc(b.t)}</td><td>${escT(S.proj.lanes[b.lane] || "")}</td><td class="head">${escT(head)}</td>
       <td class="num">${dur.toFixed(1)}</td><td class="num">${slot.toFixed(1)}</td>
@@ -793,15 +793,79 @@ $("filebtn").addEventListener("click", () => {
   $("dlgFile").showModal();
 });
 
+/* ---------------- 訳文のハイライト ----------------
+   選んだ範囲を《…》で囲む。見た目は <mark>、保存は記号付きの文字列。
+   選択があると小さな帯（#hlbar）が出る。⌘⇧H / Ctrl+Shift+H でも */
+function serializeJa(el){
+  let out = "", depth = 0;
+  const walk = n => {
+    for (const k of n.childNodes) {
+      if (k.nodeType === 3) out += k.nodeValue;
+      else if (k.nodeName === "BR") out += "\n";
+      else if (k.nodeName === "MARK") { if (!depth) out += C.HL_OPEN; depth++; walk(k); depth--; if (!depth) out += C.HL_CLOSE }
+      else if (k.nodeName === "DIV" || k.nodeName === "P") { if (out && !out.endsWith("\n")) out += "\n"; walk(k) }
+      else walk(k);
+    }
+  };
+  walk(el);
+  return out.replace(/\n$/, "").replace(/《》/g, "");
+}
+const hlbar = $("hlbar"); let hlCtx = null, hlT = 0;
+function hlContext(){
+  const sel = document.getSelection(); if (!sel || !sel.rangeCount) return null;
+  const r = sel.getRangeAt(0);
+  const elOf = n => n.nodeType === 1 ? n : n.parentElement;
+  const ja = elOf(r.commonAncestorContainer)?.closest(".ja"); if (!ja || !ja.dataset.b) return null;
+  const m0 = elOf(r.startContainer)?.closest("mark"), m1 = elOf(r.endContainer)?.closest("mark");
+  const mark = m0 && m0 === m1 && ja.contains(m0) ? m0 : null;     // 範囲が 1 つのハイライトの中に収まっている
+  return { ja, range: r, collapsed: sel.isCollapsed, mark };
+}
+function updateHlbar(){
+  const c = hlContext();
+  if (!c || (c.collapsed && !c.mark)) { hlbar.hidden = true; hlCtx = null; return }
+  const rect = c.mark && c.collapsed ? c.mark.getBoundingClientRect() : c.range.getBoundingClientRect();
+  if (!rect.width && !rect.height) { hlbar.hidden = true; hlCtx = null; return }
+  hlCtx = c;
+  $("hlbtn").textContent = c.mark ? "ハイライトを外す" : "ハイライト";
+  hlbar.hidden = false;
+  const w = hlbar.offsetWidth, h = hlbar.offsetHeight;
+  hlbar.style.left = Math.max(6, Math.min(innerWidth - w - 6, rect.left)) + "px";
+  hlbar.style.top = Math.max(6, rect.top - h - 6) + "px";
+}
+function finishHl(ja){
+  const bid = ja.dataset.b, ci = +ja.dataset.c, b = S.proj.blocks.find(x => x.id === bid); if (!b) return;
+  const text = serializeJa(ja);
+  b.cells[ci].ja = text; ja.innerHTML = jaHTML(text);
+  repaintCell(bid, ci); queueSave();
+  const sel = document.getSelection(), r = document.createRange(); r.selectNodeContents(ja); r.collapse(false);
+  sel.removeAllRanges(); sel.addRange(r);
+  hlbar.hidden = true; hlCtx = null;
+}
+function toggleHighlight(c = hlContext()){
+  if (!c) return false;
+  if (c.mark) { c.mark.replaceWith(...c.mark.childNodes); finishHl(c.ja); toast("ハイライトを外した"); return true }
+  if (c.collapsed) return false;
+  const frag = c.range.extractContents();
+  frag.querySelectorAll("mark").forEach(m => m.replaceWith(...m.childNodes));
+  const mk = document.createElement("mark"); mk.appendChild(frag); c.range.insertNode(mk);
+  finishHl(c.ja); return true;
+}
+document.addEventListener("selectionchange", () => { clearTimeout(hlT); hlT = setTimeout(updateHlbar, 60) });
+hlbar.addEventListener("pointerdown", e => { e.preventDefault(); if (hlCtx) toggleHighlight(hlCtx) });
+addEventListener("scroll", () => { if (!hlbar.hidden) updateHlbar() }, true);
+
 /* --- シート --- */
 const sheet = $("sheet");
+sheet.addEventListener("keydown", e => {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "h" && e.target.closest(".ja")) { e.preventDefault(); toggleHighlight() }
+});
 sheet.addEventListener("input", e => {
   const ja = e.target.closest(".ja"), ka = e.target.closest(".kana");
   const el = ja || ka; if (!el) return;
   const bid = ja ? el.dataset.b : el.dataset.kb;
   const ci  = +(ja ? el.dataset.c : el.dataset.kc);
   const b = S.proj.blocks.find(x => x.id === bid); if (!b) return;
-  if (ja) b.cells[ci].ja = el.innerText.replace(/\n$/, "");
+  if (ja) b.cells[ci].ja = serializeJa(el);
   else    b.cells[ci].kana = el.innerText.replace(/\n$/, "");
   repaintCell(bid, ci);
   queueSave();
@@ -1236,6 +1300,13 @@ $("fSrt").addEventListener("click", () => {
   const name = (S.proj.title || "dub").replace(/[^\w　-鿿-]+/g, "_");
   C.download(name + ".ja.srt", C.toSRT(S.proj), "text/plain");
   toast("SRT を書き出しました");
+});
+$("fSrtHl").addEventListener("click", () => {
+  const name = (S.proj.title || "dub").replace(/[^\w　-鿿-]+/g, "_");
+  const srt = C.toSRT(S.proj, { field: "hl" });
+  if (!srt.trim()) { toast("ハイライトがまだ無い。訳文を選んで「ハイライト」"); return }
+  C.download(name + ".highlights.srt", srt, "text/plain");
+  toast("ハイライトを SRT で書き出した");
 });
 $("fImport").addEventListener("click", () => { $("dlgFile").close(); openImport() });
 $("fLabels").addEventListener("click", () => {

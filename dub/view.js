@@ -2,9 +2,11 @@
    view.js — シートの描画 / ミニタイムライン / 適合平面
    描く側は状態を持たない。S（app.js が持つ）を読んで HTML を返すだけ
    ============================================================ */
-import { KINDS, REC, blockDur, tc, projectEnd, hasPin } from "./core.js";
+import { KINDS, REC, blockDur, tc, projectEnd, hasPin, plainJa } from "./core.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+/** 訳文の HTML：《…》を <mark> にする。対になっていない記号はそのまま見せる */
+export const jaHTML = s => esc(s).replace(/《([^《》]*)》/g, "<mark>$1</mark>");
 
 /* ---------------- 1ブロックの判定をまとめる ---------------- */
 export function blockInfo(S, b){
@@ -132,7 +134,7 @@ function cardHTML(S, b, info, flow, style = ""){
         `<div class="slot"><b>${j.dur.toFixed(1)}秒</b><span class="at">${tc(t)}</span></div>` +
         (c.en ? `<p class="en">${esc(c.en)}</p>` : "") +
         `<div class="ja" contenteditable="true" spellcheck="false" role="textbox" aria-label="訳文"` +
-          ` data-b="${b.id}" data-c="${ci}">${esc(c.ja)}</div>` +
+          ` data-b="${b.id}" data-c="${ci}">${jaHTML(c.ja)}</div>` +
         `<div class="kana${(c.kana || S.kanaOpen.has(b.id + ":" + ci)) ? " on" : ""}" contenteditable="true"` +
           ` spellcheck="false" role="textbox" aria-label="よみ" data-kb="${b.id}" data-kc="${ci}">${esc(c.kana)}</div>` +
         `<div class="meta">${metaHTML(j)}` +
@@ -299,7 +301,7 @@ export function renderPlane(S){
         `<td class="m">${p.dur.toFixed(1)}</td><td class="m">${p.mora}</td>` +
         `<td class="m bad">${p.req.toFixed(1)}</td>` +
         `<td class="m bad">−${Math.ceil(p.delta)}</td>` +
-        `<td><div class="ja">${esc(p.ja)}</div></td></tr>`).join("")
+        `<td><div class="ja">${esc(plainJa(p.ja))}</div></td></tr>`).join("")
     : `<tr><td colspan="6" style="color:#6d7378">赤はありません。</td></tr>`;
 
   const sp = S.proj.speedup > 0 ? S.proj.speedup : 1;
