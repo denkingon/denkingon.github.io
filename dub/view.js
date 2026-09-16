@@ -70,7 +70,7 @@ export function renderSheet(S){
     el.style.gridTemplateColumns = "minmax(0,1fr)";
     el.style.gridTemplateRows = "";
     el.innerHTML = items.map(it => it.pin != null
-      ? `<div class="pinflow" data-pin="${it.pin}" title="押すとピンを外す">${pinFlowHTML(S, it.pin)}</div>`
+      ? `<div class="pinflow" data-pin="${it.pin}">${pinFlowHTML(S, it.pin)}<button class="unpin" data-unpin="${it.pin}" title="このピンを外す" aria-label="ピンを外す">×</button></div>`
       : `<div class="tc" data-pin-at="${it.b.t}" title="押すとここにピンを打つ">${hasPin(S.proj, it.b.t) ? "" : tc(it.b.t)}</div>` + cardHTML(S, it.b, it.info, true)
     ).join("");
     return;
@@ -93,17 +93,17 @@ export function renderSheet(S){
   items.forEach((it, i) => {
     const r = i + 2;
     if (it.pin != null) {
-      h += `<div class="pintc" data-pin="${it.pin}" style="grid-row:${r};grid-column:1" title="押すとピンを外す">${tc(it.pin)}</div>`;
+      h += `<div class="pintc" data-pin="${it.pin}" style="grid-row:${r};grid-column:1"><button class="unpin" data-unpin="${it.pin}" title="このピンを外す" aria-label="ピンを外す">×</button>${tc(it.pin)}</div>`;
       vis.forEach((li, k) => {
         const s = sectionAt(S, it.pin, li);
         h += `<div class="pincell${s && s.over ? " over" : ""}" data-pin="${it.pin}" data-lane="${li}"` +
-             ` style="grid-row:${r};grid-column:${k + 2}" title="押すとピンを外す">${pinBalanceHTML(S, it.pin, li)}</div>`;
+             ` style="grid-row:${r};grid-column:${k + 2}">${pinBalanceHTML(S, it.pin, li)}</div>`;
       });
       return;
     }
     const { b, info } = it, col = vis.indexOf(b.lane) + 2;
     // ピンがその時刻にあるなら、時刻はピンの行が出しているので二重に出さない
-    h += `<div class="tc${S.curBlock === b.id ? " hot" : ""}" data-pin-at="${b.t}" title="押すとここにピンを打つ"` +
+    h += `<div class="tc${S.curBlock === b.id ? " hot" : ""}" data-pin-at="${b.t}" title="${hasPin(S.proj, b.t) ? "ピンあり（外すのはピンの行の ×）" : "押すとここにピンを打つ"}"` +
          ` style="grid-row:${r};grid-column:1">${hasPin(S.proj, b.t) ? "" : tc(b.t)}<u></u></div>`;
     h += cardHTML(S, b, info, false, `grid-row:${r};grid-column:${col}`);
   });

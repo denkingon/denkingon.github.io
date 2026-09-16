@@ -143,7 +143,7 @@ input[type=range]{width:128px; accent-color:#c6ccd1; background:transparent}
 
 /* ピンの行：区間の境目。レーンごとに、そこから始まる区間の収支を出す */
 .pintc,.pincell{
-  position:relative; z-index:2; cursor:pointer; margin-top:2px;
+  position:relative; z-index:2; cursor:default; margin-top:2px;
   border-top:1px solid var(--ctext2); padding:7px 0 6px;
   font-family:var(--mono); font-size:11px; color:var(--ctext2);
 }
@@ -431,3 +431,10 @@ kbd{
 #hlbar{position:fixed; z-index:60; background:#1a1c1e; color:#e4e8eb; border:1px solid #3a3e42; padding:4px 6px;
   display:flex; gap:8px; align-items:center; font-size:12px; box-shadow:0 4px 14px rgba(0,0,0,.35); border-radius:2px}
 #hlbar .hint{color:#9ba1a7}
+
+/* ピンを外すのは × だけ（うっかり押して外れないように） */
+.unpin{appearance:none; border:1px solid transparent; background:transparent; color:var(--ctext2); font:inherit; font-size:12px; line-height:1;
+  padding:1px 5px; margin:0 6px 0 0; border-radius:2px; cursor:pointer; opacity:.55; vertical-align:middle}
+.pintc .unpin{position:absolute; left:-2px; top:5px}
+.pinflow .unpin{margin-left:10px}
+.unpin:hover{opacity:1; color:var(--bright); border-color:var(--ctext2)}

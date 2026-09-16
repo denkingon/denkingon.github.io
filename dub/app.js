@@ -325,7 +325,7 @@ function renderTakeList(){
       ? `${rec.format} ${rec.wav.sampleRate}Hz ${rec.wav.channels}ch ${C.tc(rec.wav.duration)}　発声 ${rec.segs.length}` + (clips.length ? `　割り付け ${clips.length} ブロック` : "")
       : "";
     return `<div class="take" data-take="${escT(m.name)}">
-      <div class="trow"><b class="tname">${escT(m.name)}</b><span class="hint">${info}</span>${rec ? "" : `<span class="hint miss">未読込</span>`}<span style="flex:1"></span><button class="tg tdel">外す</button></div>
+      <div class="trow"><b class="tname">${escT(m.name)}</b><span class="hint">${info}</span>${rec ? "" : `<span class="hint miss">未読込</span>`}<span style="flex:1"></span>${rec && !clips.length ? `<button class="tg tplay" title="置いた所から聴く">▶ ${tcTenth(m.offset)}–${tcTenth(m.offset + ((m.out == null ? rec.wav.duration : m.out) - m.in) / m.speed)}</button>` : ""}<button class="tg tdel">外す</button></div>
       ${rec ? `<canvas class="tstrip" width="800" height="56" title="取っ手をつかんで入り／出を動かす"></canvas>` : ""}
       <div class="trow">
         <label>入り</label><input type="text" class="tin" value="${tcTenth(m.in)}">
@@ -392,6 +392,7 @@ $("takes").addEventListener("click", e => {
     for (const id of [...player.takes.keys()]) if (id === name || id.startsWith(name + "#")) player.remove(id);
     rebuildTimeline(); queueSave(); return;
   }
+  if (e.target.closest(".tplay")) { seek(m.offset); setPlay(true); return }
   if (e.target.closest(".thead")) {
     if (!rec || !rec.segs.length) { toast("発声が見つかっていない"); return }
     m.in = +Math.max(0, rec.segs[0][0] - 0.05).toFixed(3);
@@ -447,7 +448,13 @@ $("takes").addEventListener("pointerdown", e => {
   const el = cv.closest(".take"), name = el.dataset.take, m = takeMeta(name), rec = S.recs.get(name); if (!m || !rec) return;
   const W = cv.clientWidth || cv.width, dur = rec.wav.duration;
   const xIn = m.in / dur * W, xOut = (m.out == null ? dur : m.out) / dur * W;
-  const which = Math.abs(e.offsetX - xIn) <= Math.abs(e.offsetX - xOut) ? "in" : "out";
+  const dIn = Math.abs(e.offsetX - xIn), dOut = Math.abs(e.offsetX - xOut);
+  if (Math.min(dIn, dOut) > 12) {                       // 取っ手から離れた所を押した：そこから聴く
+    const t = m.offset + Math.max(0, (e.offsetX / W * dur - m.in)) / m.speed;
+    if (!clipsOf(name).length) { seek(t); setPlay(true) }
+    return;
+  }
+  const which = dIn <= dOut ? "in" : "out";
   cv.setPointerCapture(e.pointerId);
   const move = ev => {
     const t = Math.max(0, Math.min(dur, ev.offsetX / W * dur));
@@ -563,6 +570,8 @@ function setPlay(v){
   $("play").setAttribute("aria-label", v ? "停止" : "再生");
   if (S.hasMedia) { v ? media.play().catch(() => {}) : media.pause(); }
   if (S.wav) { v ? player.play(S.t) : player.stop(); }
+  if (v && S.wav && !player.on) toast("日本語（録音）はオフになっている。「日本語」か J で入る");
+  if (v && S.wav && !player.playing && !S.hasMedia) toast("この位置には録音が無い（録音の画面で置き場所を確かめる）");
   if (v) { rafLast = performance.now(); requestAnimationFrame(tick); }
 }
 let rafLast = 0, lastSync = 0;
@@ -871,10 +880,11 @@ sheet.addEventListener("input", e => {
   queueSave();
 });
 sheet.addEventListener("click", e => {
+  const unpin = e.target.closest("[data-unpin]");
+  if (unpin) { togglePinAt(+unpin.dataset.unpin); return }
   const pinAt = e.target.closest("[data-pin-at]");
-  if (pinAt) { togglePinAt(+pinAt.dataset.pinAt); return }
-  const pinRow = e.target.closest("[data-pin]");
-  if (pinRow && !e.target.closest(".card")) { togglePinAt(+pinRow.dataset.pin); return }
+  if (pinAt) { if (!C.hasPin(S.proj, +pinAt.dataset.pinAt)) togglePinAt(+pinAt.dataset.pinAt); else toast("ここにはもうピンがある。外すのはピンの行の ×"); return }
+  if (e.target.closest("[data-pin]") && !e.target.closest(".card")) return;   // ピンの行を押しても何も起きない
   const rec = e.target.closest("[data-rec]");
   if (rec) {
     const b = S.proj.blocks.find(x => x.id === rec.dataset.rec);
