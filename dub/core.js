@@ -104,6 +104,7 @@ export function newProject(o = {}){
     speedup: o.speedup ?? 1,            // 録音をあとで何倍速にするか。判定話速と限界に掛かる
     recThr: o.recThr > 0 ? +o.recThr : null, // 声のしきい値（rms）。null なら自動
     takes: (o.takes ?? []).map(newTake),     // 本番の録音（テイク）。音そのものは持たず、ファイル名と置き方だけ
+    clips: (o.clips ?? []).map(newClip).filter(c => c.take && c.block),  // テイクをブロックごとに切り出した割り付け
     pins: (o.pins ?? []).map(Number).filter(t => t >= 0).sort((a, b) => a - b),  // 手で打ったアンカー（秒）
     samples: o.samples ?? [],           // {kind:'base'|'limit', mora, sec, note, at}
     dict: o.dict ?? {},
@@ -121,6 +122,17 @@ export function newTake(o = {}){
     in: Math.max(0, +(o.in ?? 0) || 0),
     out: o.out == null || !(+o.out > 0) ? null : +o.out,
     speed: Math.min(2, Math.max(0.5, +(o.speed ?? 1) || 1)),
+    lane: o.lane == null || o.lane === "" ? null : +o.lane,   // 割り付けの対象レーン。null なら全部
+  };
+}
+/** 割り付け＝テイクの中の [in,out]（WAV 秒）を、ブロック block の時間軸 at 秒に置く */
+export function newClip(o = {}){
+  return {
+    take: String(o.take ?? ""),
+    block: String(o.block ?? ""),
+    in: Math.max(0, +(o.in ?? 0) || 0),
+    out: Math.max(0, +(o.out ?? 0) || 0),
+    at: Math.max(0, +(o.at ?? 0) || 0),
   };
 }
 

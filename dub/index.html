@@ -7,15 +7,15 @@
 <meta name="description" content="固定された秒数の枠に日本語が入るかどうかを、カードを開かずに見つけるための吹き替え作業画面。">
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%231a1c1e'/%3E%3Crect x='18' y='20' width='64' height='12' fill='%234d545a'/%3E%3Crect x='18' y='44' width='64' height='12' fill='%23c03a2b'/%3E%3Crect x='18' y='68' width='40' height='12' fill='%234d545a'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=202609160428">
+<link rel="stylesheet" href="style.css?v=202609160935">
 <!-- 版の固定：index.html を読み直せば JS 全部が同じ版で揃う（GitHub Pages のキャッシュで新旧が混ざらないように）。
      stamp.mjs で ?v= を一括更新する -->
 <script type="importmap">
 { "imports": {
-  "./core.js":   "./core.js?v=202609160428",
-  "./view.js":   "./view.js?v=202609160428",
-  "./audio.js":  "./audio.js?v=202609160428",
-  "./sample.js": "./sample.js?v=202609160428"
+  "./core.js":   "./core.js?v=202609160935",
+  "./view.js":   "./view.js?v=202609160935",
+  "./audio.js":  "./audio.js?v=202609160935",
+  "./sample.js": "./sample.js?v=202609160935"
 } }
 </script>
 <script>
@@ -78,7 +78,7 @@
       </select></div>
     <label class="tg" for="mediafile" style="cursor:pointer" title="映像（mp4 など）">映像…</label>
     <input type="file" id="mediafile" accept="video/*,audio/*" hidden>
-    <label class="tg" for="wavfile" style="cursor:pointer" title="本番の録音。32-bit float WAV も読める">録音…</label>
+    <button class="tg" id="recbtn" title="本番の録音：テイクを置く・切り出す・伸縮する・ブロックに割り付ける（T）">録音…</button>
     <input type="file" id="wavfile" accept=".wav,audio/wav,audio/x-wav,audio/wave" multiple hidden>
     <button class="tg" id="jaon" aria-pressed="true" title="J" disabled>日本語</button>
     <button class="tg" id="vidwin" aria-pressed="false" title="V" disabled>映像</button>
@@ -283,15 +283,9 @@
     </div>
     <h3>本番の録音</h3>
     <div class="row">
-      <label class="tg" for="wavfile" style="cursor:pointer">録音を足す…</label>
-      <button class="tg" id="recFromDir" hidden>書き出し先フォルダから読む</button>
-      <label for="recThr">声のしきい値</label>
-      <input type="range" id="recThr" min="-60" max="-10" step="1" value="-40" style="width:10em">
-      <span class="hint" id="recThrVal">自動</span>
-      <button class="tg" id="recAuto" hidden>自動に戻す</button>
+      <button class="tg" id="fRecOpen">録音の画面を開く</button>
+      <span class="hint">テイクの置き方・頭の沈黙・伸縮・ブロックへの割り付けは、ヘッダの「録音…」からも開ける</span>
     </div>
-    <p class="note" id="recDiag">録音なし。テイク（区間ごとに録った WAV）を何本でも足せる。音は触らず、置き方だけを JSON に残す。</p>
-    <div id="takes"></div>
     <div class="row">
       <label>DAW へ</label>
       <button class="tg" id="fLabels">Audacity ラベル</button>
@@ -346,12 +340,33 @@
   </div>
 </dialog>
 
+<dialog id="dlgRec">
+  <div class="dhead"><h2>本番の録音</h2><button class="tg x" data-close>閉じる</button></div>
+  <div class="dbody">
+    <div class="row">
+      <label class="tg" for="wavfile" style="cursor:pointer">録音を足す…</label>
+      <button class="tg" id="recFromDir" hidden>書き出し先フォルダから読む</button>
+      <button class="tg" id="recTrack">日本語トラック（WAV）を書き出す</button>
+      <span style="flex:1"></span>
+      <label for="recThr">声のしきい値</label>
+      <input type="range" id="recThr" min="-60" max="-10" step="1" value="-40" style="width:10em">
+      <span class="hint" id="recThrVal">自動</span>
+      <button class="tg" id="recAuto" hidden>自動に戻す</button>
+    </div>
+    <p class="note" id="recDiag">録音なし。テイク（区間ごとに録った WAV）を何本でも足せる。音は触らず、置き方だけを JSON に残す。</p>
+    <p class="note">やり方：①テイクを足す　②「頭の沈黙を切る」　③開始位置を区間の頭に置く　④「ブロックに割り付ける」で、原稿の長さ（モーラ）の比で発声をブロックに分けて、それぞれ枠の頭に置く。
+      ずれていたら表の ◁ ▷ で 0.1 秒ずつ動かす。伸縮はテイク単位。</p>
+    <div id="takes"></div>
+  </div>
+  <div class="dfoot"><button class="tg" data-close>閉じる</button></div>
+</dialog>
+
 <div class="toast" id="toast"></div>
 
 <div class="vwin" id="vwin" hidden><video id="media" playsinline preload="auto"></video></div>
 <video id="grabber" hidden playsinline preload="auto" muted></video>
 <canvas id="canvas" hidden width="320" height="180"></canvas>
 
-<script type="module" src="app.js?v=202609160428"></script>
+<script type="module" src="app.js?v=202609160935"></script>
 </body>
 </html>
