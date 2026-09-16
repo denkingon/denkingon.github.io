@@ -143,7 +143,7 @@ input[type=range]{width:128px; accent-color:#c6ccd1; background:transparent}
 
 /* ピンの行：区間の境目。レーンごとに、そこから始まる区間の収支を出す */
 .pintc,.pincell{
-  position:relative; z-index:2; cursor:pointer; margin-top:2px;
+  position:relative; z-index:2; cursor:default; margin-top:2px;
   border-top:1px solid var(--ctext2); padding:7px 0 6px;
   font-family:var(--mono); font-size:11px; color:var(--ctext2);
 }
@@ -417,3 +417,24 @@ kbd{
 .take input[type=text]{width:5.5em}
 .take .tspd{width:8em}
 .take .tspdv{min-width:3.5em;font-variant-numeric:tabular-nums}
+.take table.clips{border-collapse:collapse;width:100%;margin:6px 0 2px;font-size:12px}
+.take table.clips th,.take table.clips td{padding:3px 6px;text-align:left;border-bottom:1px solid #e4e4dc;white-space:nowrap}
+.take table.clips th{font-weight:500;color:#6c7075}
+.take table.clips td.head{max-width:22em;overflow:hidden;text-overflow:ellipsis}
+.take table.clips td.num{text-align:right;font-variant-numeric:tabular-nums}
+.take table.clips td.bad{color:#c03a2b;font-weight:600}
+.take table.clips button{padding:1px 7px;font:inherit}
+
+/* ---- 訳文のハイライト（《…》）。色は赤だけ、の掟なので灰の地 ---- */
+.ja mark{background:#dcdcd4; color:inherit; padding:.02em .14em; border-radius:2px; -webkit-box-decoration-break:clone; box-decoration-break:clone}
+.ja:focus mark{background:#d0d0c6}
+#hlbar{position:fixed; z-index:60; background:#1a1c1e; color:#e4e8eb; border:1px solid #3a3e42; padding:4px 6px;
+  display:flex; gap:8px; align-items:center; font-size:12px; box-shadow:0 4px 14px rgba(0,0,0,.35); border-radius:2px}
+#hlbar .hint{color:#9ba1a7}
+
+/* ピンを外すのは × だけ（うっかり押して外れないように） */
+.unpin{appearance:none; border:1px solid transparent; background:transparent; color:var(--ctext2); font:inherit; font-size:12px; line-height:1;
+  padding:1px 5px; margin:0 6px 0 0; border-radius:2px; cursor:pointer; opacity:.55; vertical-align:middle}
+.pintc .unpin{position:absolute; left:-2px; top:5px}
+.pinflow .unpin{margin-left:10px}
+.unpin:hover{opacity:1; color:var(--bright); border-color:var(--ctext2)}

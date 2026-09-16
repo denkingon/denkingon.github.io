@@ -2,7 +2,7 @@
    app.js — 状態と配線
    ============================================================ */
 import * as C from "./core.js";
-import { renderSheet, renderMini, renderPlane, blockInfo, metaHTML, laneRedCount, pinBalanceHTML, pinFlowHTML, sectionAt } from "./view.js";
+import { renderSheet, renderMini, renderPlane, blockInfo, metaHTML, laneRedCount, pinBalanceHTML, pinFlowHTML, sectionAt, jaHTML } from "./view.js";
 import { SAMPLE } from "./sample.js";
 import * as AU from "./audio.js";
 
@@ -152,6 +152,7 @@ function computeTakes(){
    proj.takes: 置き方（name, offset, in, out, speed）。音そのものは JSON に入らない
    ============================================================ */
 const takeMeta = name => S.proj.takes.find(t => t.name === name) || null;
+const clipsOf = name => S.proj.clips.filter(c => c.take === name).sort((a, b) => a.in - b.in);
 const escT = v => String(v).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 /** 新しいテイクの置き場所：まだテイクの置かれていない区間の頭。無ければ 0 */
@@ -173,36 +174,55 @@ function detectRaw(rec){
   const r = AU.speechSegments(rec.A.rms, { thr: S.proj.recThr });
   Object.assign(rec, { segs: r.segs, thr: r.thr, floor: r.floor, loud: r.loud });
 }
-/** 入り/出で切り出し、速度で伸縮して、置く音を作る */
-function renderTake(name){
-  const rec = S.recs.get(name), m = takeMeta(name); if (!rec || !m) return;
-  const sr = rec.wav.sampleRate, fr = rec.wav.frames;
-  const i0 = Math.min(fr, Math.max(0, Math.round(m.in * sr)));
-  const i1 = m.out == null ? fr : Math.min(fr, Math.max(i0 + 1, Math.round(m.out * sr)));
+/** テイクの [i0,i1) を切り出し、速度で伸縮して「置く音」1 片を作る */
+function renderPiece(rec, i0, i1, speed){
+  const sr = rec.wav.sampleRate;
   let ch = rec.wav.ch.map(c => c.subarray(i0, i1));
-  if (Math.abs(m.speed - 1) > 0.005) ch = ch.map(c => AU.stretch(c, sr, m.speed));
+  if (Math.abs(speed - 1) > 0.005) ch = ch.map(c => AU.stretch(c, sr, speed));
   const wav = { sampleRate: sr, channels: ch.length, frames: ch[0].length, duration: ch[0].length / sr, ch };
   const A = AU.envelope(wav), r = AU.speechSegments(A.rms, { thr: S.proj.recThr });
-  rec.out = { wav, A, segs: r.segs, thr: r.thr };
-  player.setTake(name, wav, m.offset);
+  return { wav, A, segs: r.segs };
 }
-/** 全テイクを時間軸に重ねて S.wav（包絡と発声）を作り直す */
+/** 置く音を作り直す。割り付け（clips）があればブロックごとに、無ければテイク 1 本として */
+function renderTake(name){
+  const rec = S.recs.get(name), m = takeMeta(name); if (!rec || !m) return;
+  const sr = rec.wav.sampleRate, fr = rec.wav.frames, idx = t => Math.min(fr, Math.max(0, Math.round(t * sr)));
+  for (const id of [...player.takes.keys()]) if (id === name || id.startsWith(name + "#")) player.remove(id);
+  const clips = clipsOf(name), pieces = [];
+  if (clips.length) {
+    for (const c of clips) {
+      const i0 = idx(c.in), i1 = Math.max(i0 + 1, idx(c.out));
+      const p = renderPiece(rec, i0, i1, m.speed); p.at = c.at; p.id = name + "#" + c.block; p.clip = c; pieces.push(p);
+    }
+  } else {
+    const i0 = idx(m.in), i1 = m.out == null ? fr : Math.max(i0 + 1, idx(m.out));
+    const p = renderPiece(rec, i0, i1, m.speed); p.at = m.offset; p.id = name; pieces.push(p);
+  }
+  for (const p of pieces) player.setTake(p.id, p.wav, p.at);
+  rec.out = { pieces };
+}
+function livePieces(){
+  const out = [];
+  for (const m of S.proj.takes) { const rec = S.recs.get(m.name); if (rec && rec.out) for (const p of rec.out.pieces) out.push({ m, rec, p }) }
+  return out;
+}
+/** 全テイクの全片を時間軸に重ねて S.wav（包絡と発声）を作り直す */
 function rebuildTimeline(){
-  const live = S.proj.takes.map(m => ({ m, rec: S.recs.get(m.name) })).filter(x => x.rec && x.rec.out);
-  for (const id of [...player.takes.keys()]) if (!live.some(x => x.m.name === id)) player.remove(id);
+  const live = livePieces(), ids = new Set(live.map(x => x.p.id));
+  for (const id of [...player.takes.keys()]) if (!ids.has(id)) player.remove(id);
   if (!live.length) { S.wav = null; $("jaon").disabled = true; }
   else {
     let end = S.proj.duration || 0;
-    for (const x of live) end = Math.max(end, x.m.offset + x.rec.out.wav.duration);
+    for (const x of live) end = Math.max(end, x.p.at + x.p.wav.duration);
     if (!S.hasMedia) S.proj.duration = end;
     const n = Math.ceil(END() / AU.BIN) + 2, env = new Float32Array(n), segs = [];
     for (const x of live) {
-      const b0 = Math.round(x.m.offset / AU.BIN), e = x.rec.out.A.env;
+      const b0 = Math.round(x.p.at / AU.BIN), e = x.p.A.env;
       for (let i = 0; i < e.length && b0 + i < n; i++) if (e[i] > env[b0 + i]) env[b0 + i] = e[i];
-      for (const [p, q] of x.rec.out.segs) segs.push([p + x.m.offset, q + x.m.offset]);
+      for (const [p, q] of x.p.segs) segs.push([p + x.p.at, q + x.p.at]);
     }
     segs.sort((p, q) => p[0] - q[0]);
-    S.wav = { A: { env }, segs, count: live.length };
+    S.wav = { A: { env }, segs, count: new Set(live.map(x => x.m.name)).size };
     $("jaon").disabled = false;
   }
   render(); frame(); drawMiniWave(); syncRecUI();
@@ -214,13 +234,70 @@ function rebuildAll(){
 }
 function commitTake(name, { rerender = true } = {}){
   const m = takeMeta(name);
-  if (m && S.recs.get(name)) { if (rerender) renderTake(name); else player.setOffset(name, m.offset) }
+  if (m && S.recs.get(name)) {
+    if (rerender || clipsOf(name).length) renderTake(name); else player.setOffset(name, m.offset);
+  }
   rebuildTimeline(); queueSave();
+}
+
+/* ---------------- ブロックへの割り付け ----------------
+   テイクの発声（息継ぎで切れた束）を、区間の中のブロックへ順番に割り付ける。
+   音声認識はしない。原稿のモーラ比で「各ブロックが使うはずの発声時間」を決め、
+   発声の束をその比にいちばん近くなるように連続した組に分ける（動的計画法）。
+   各組は自分のブロックの枠の頭に置く。ずれは表の ◁ ▷ で直す */
+function blocksForTake(m){
+  const pins = S.proj.pins || [], rec = S.recs.get(m.name);
+  const rawLen = ((m.out == null ? (rec ? rec.wav.duration : 0) : m.out) - m.in) / m.speed;
+  let t1 = m.offset + rawLen + 1;
+  const pi = pins.findIndex(p => Math.abs(p - m.offset) < 0.05);
+  if (pi >= 0 && pi + 1 < pins.length) t1 = pins[pi + 1];
+  return S.proj.blocks
+    .filter(b => b.kind !== "SILENT" && b.t >= m.offset - 0.05 && b.t < t1 - 1e-6 && (m.lane == null || b.lane === m.lane))
+    .sort((a, b) => a.t - b.t);
+}
+function autoAlign(name){
+  const m = takeMeta(name), rec = S.recs.get(name); if (!m || !rec) return null;
+  const blocks = blocksForTake(m);
+  if (!blocks.length) { toast("開始位置から先の区間にブロックが無い（開始位置とレーンを確かめる）"); return null }
+  const inT = m.in, outT = m.out == null ? rec.wav.duration : m.out;
+  let segs = [];
+  for (const offN of [50, 24, 12]) {                     // 束が足りなければ、息継ぎの粘りを短くして細かく切る
+    const r = AU.speechSegments(rec.A.rms, { thr: S.proj.recThr, offN });
+    segs = r.segs.filter(([a, b]) => b > inT && a < outT).map(([a, b]) => [Math.max(a, inT), Math.min(b, outT)]);
+    if (segs.length >= blocks.length) break;
+  }
+  if (!segs.length) { toast("発声が見つからない。しきい値を下げてみる"); return null }
+  const mora = blocks.map(b => Math.max(1, b.cells.reduce((s, c) => s + C.cellMora(c, S.proj.dict).mora, 0)));
+  const total = segs.reduce((s, [a, b]) => s + (b - a), 0), sumM = mora.reduce((a, b) => a + b, 0);
+  const want = mora.map(x => total * x / sumM);
+  const n = blocks.length, k = segs.length, allowEmpty = k < n;
+  const pre = [0]; for (const [a, b] of segs) pre.push(pre[pre.length - 1] + (b - a));
+  const INF = 1e18;
+  const cost = Array.from({ length: n + 1 }, () => new Float64Array(k + 1).fill(INF));
+  const from = Array.from({ length: n + 1 }, () => new Int32Array(k + 1));
+  cost[0][0] = 0;
+  for (let j = 1; j <= n; j++) for (let e = 0; e <= k; e++) for (let st = 0; st <= e; st++) {
+    if (st === e && !allowEmpty) continue;
+    if (cost[j - 1][st] >= INF) continue;
+    const c = cost[j - 1][st] + ((pre[e] - pre[st]) - want[j - 1]) ** 2;
+    if (c < cost[j][e]) { cost[j][e] = c; from[j][e] = st }
+  }
+  const bounds = new Array(n + 1); bounds[n] = k;
+  for (let j = n; j >= 1; j--) bounds[j - 1] = from[j][bounds[j]];
+  const clips = [];
+  for (let j = 0; j < n; j++) {
+    const st = bounds[j], e = bounds[j + 1]; if (e <= st) continue;
+    clips.push(C.newClip({ take: name, block: blocks[j].id, in: Math.max(inT, segs[st][0] - 0.05), out: Math.min(outT, segs[e - 1][1] + 0.05), at: blocks[j].t }));
+  }
+  for (let j = 1; j < clips.length; j++) if (clips[j].in < clips[j - 1].out) { const mid = (clips[j].in + clips[j - 1].out) / 2; clips[j - 1].out = mid; clips[j].in = mid }
+  S.proj.clips = S.proj.clips.filter(c => c.take !== name).concat(clips);
+  return { clips: clips.length, blocks: n, segs: k };
 }
 
 function syncRecUI(){
   const w = S.wav, takes = S.proj.takes;
-  $("wavhint").textContent = w ? `録音 ${w.count} 本　発声 ${w.segs.length}` : takes.length ? `録音 ${takes.length} 本（未読込）` : "録音なし";
+  const nClips = S.proj.clips.length;
+  $("wavhint").textContent = (w ? `録音 ${w.count} 本　発声 ${w.segs.length}` : takes.length ? `録音 ${takes.length} 本（未読込）` : "録音なし") + (nClips ? `　割り付け ${nClips}` : "");
   const manual = S.proj.recThr > 0, first = [...S.recs.values()][0];
   const thrShown = manual ? S.proj.recThr : (first ? first.thr : 0.01);
   $("recThr").value = Math.round(AU.dB(thrShown));
@@ -241,32 +318,59 @@ function syncRecUI(){
 function renderTakeList(){
   const box = $("takes"), pins = S.proj.pins || [];
   const secOpts = pins.slice(0, -1).map((p, i) => `<option value="${p}">区間 ${i + 1}　${C.tc(p)}–${C.tc(pins[i + 1])}</option>`).join("");
+  const laneOpts = S.proj.lanes.map((n, i) => `<option value="${i}">${escT(n)}</option>`).join("");
   box.innerHTML = S.proj.takes.map(m => {
-    const rec = S.recs.get(m.name);
+    const rec = S.recs.get(m.name), clips = clipsOf(m.name);
     const info = rec
-      ? `${rec.format} ${rec.wav.sampleRate}Hz ${rec.wav.channels}ch ${C.tc(rec.wav.duration)}　発声 ${rec.segs.length}` +
-        (rec.out ? `　置いた長さ ${rec.out.wav.duration.toFixed(1)}秒` : "")
+      ? `${rec.format} ${rec.wav.sampleRate}Hz ${rec.wav.channels}ch ${C.tc(rec.wav.duration)}　発声 ${rec.segs.length}` + (clips.length ? `　割り付け ${clips.length} ブロック` : "")
       : "";
     return `<div class="take" data-take="${escT(m.name)}">
-      <div class="trow"><b class="tname">${escT(m.name)}</b><span class="hint">${info}</span>${rec ? "" : `<span class="hint miss">未読込</span>`}<span style="flex:1"></span><button class="tg tdel">外す</button></div>
+      <div class="trow"><b class="tname">${escT(m.name)}</b><span class="hint">${info}</span>${rec ? "" : `<span class="hint miss">未読込</span>`}<span style="flex:1"></span>${rec && !clips.length ? `<button class="tg tplay" title="置いた所から聴く">▶ ${tcTenth(m.offset)}–${tcTenth(m.offset + ((m.out == null ? rec.wav.duration : m.out) - m.in) / m.speed)}</button>` : ""}<button class="tg tdel">外す</button></div>
       ${rec ? `<canvas class="tstrip" width="800" height="56" title="取っ手をつかんで入り／出を動かす"></canvas>` : ""}
       <div class="trow">
         <label>入り</label><input type="text" class="tin" value="${tcTenth(m.in)}">
         <button class="tg thead" ${rec ? "" : "disabled"} title="最初の発声の直前まで入りを進める">頭の沈黙を切る</button>
         <label>出</label><input type="text" class="tout" value="${m.out == null ? "" : tcTenth(m.out)}" placeholder="末尾">
+        <label>速度</label><input type="range" class="tspd" min="1" max="1.4" step="0.01" value="${m.speed}"><span class="tspdv">${m.speed.toFixed(2)}×</span>
+      </div>
+      <div class="trow">
         <label>開始位置</label><input type="text" class="toff" value="${tcTenth(m.offset)}">
         <select class="tsec"><option value="">区間の頭に…</option>${secOpts}</select>
         <button class="tg tsel">選んだブロックの頭に</button>
-        <label>速度</label><input type="range" class="tspd" min="1" max="1.4" step="0.01" value="${m.speed}"><span class="tspdv">${m.speed.toFixed(2)}×</span>
-      </div></div>`;
+        <label>レーン</label><select class="tlane"><option value="">全部</option>${laneOpts}</select>
+        <button class="tg talign" ${rec ? "" : "disabled"} title="発声を原稿のモーラ比でブロックに分け、それぞれ枠の頭に置く">ブロックに割り付ける</button>
+        ${clips.length ? `<button class="tg tunalign">割り付けを外す</button>` : ""}
+      </div>
+      ${clips.length ? clipTableHTML(m, clips) : ""}
+    </div>`;
   }).join("");
-  for (const el of box.querySelectorAll(".take")) drawStrip(el);
+  for (const el of box.querySelectorAll(".take")) {
+    const m = takeMeta(el.dataset.take);
+    const ln = el.querySelector(".tlane"); if (ln && m) ln.value = m.lane == null ? "" : String(m.lane);
+    drawStrip(el);
+  }
+}
+function clipTableHTML(m, clips){
+  const rows = clips.map(c => {
+    const b = S.proj.blocks.find(x => x.id === c.block);
+    if (!b) return "";
+    const slot = C.blockDur(b), dur = (c.out - c.in) / m.speed, bal = slot - dur, shift = c.at - b.t;
+    const head = C.plainJa(b.cells[0] && (b.cells[0].ja || b.cells[0].en) || "").replace(/\s+/g, " ").slice(0, 22);
+    return `<tr data-clip="${escT(c.block)}">
+      <td class="num">${C.tc(b.t)}</td><td>${escT(S.proj.lanes[b.lane] || "")}</td><td class="head">${escT(head)}</td>
+      <td class="num">${dur.toFixed(1)}</td><td class="num">${slot.toFixed(1)}</td>
+      <td class="num${bal < -0.05 ? " bad" : ""}">${bal >= 0 ? "+" : ""}${bal.toFixed(1)}</td>
+      <td class="num">${Math.abs(shift) < 0.005 ? "0" : (shift > 0 ? "+" : "") + shift.toFixed(1)}</td>
+      <td><button class="tg cnudge" data-d="-0.1" title="0.1 秒前へ">◁</button> <button class="tg cnudge" data-d="0.1" title="0.1 秒後ろへ">▷</button> <button class="tg csnap" title="枠の頭に戻す">枠の頭</button> <button class="tg cplay" title="この片を聴く">▶</button></td>
+    </tr>`;
+  }).join("");
+  return `<table class="clips"><tr><th>枠</th><th>レーン</th><th>原稿</th><th>録音 秒</th><th>枠 秒</th><th>±</th><th>ずらし</th><th></th></tr>${rows}</table>`;
 }
 function drawStrip(el){
   const m = takeMeta(el.dataset.take), rec = S.recs.get(el.dataset.take), cv = el.querySelector(".tstrip");
   if (!m || !rec || !cv) return;
   cv.width = cv.clientWidth || 800;
-  AU.drawTakeStrip(cv, rec.A, { duration: rec.wav.duration, tin: m.in, tout: m.out, segs: rec.segs });
+  AU.drawTakeStrip(cv, rec.A, { duration: rec.wav.duration, tin: m.in, tout: m.out, segs: rec.segs, clips: clipsOf(m.name) });
 }
 /** 0:52.3 のように十分の一秒まで（開始位置の欄用） */
 function tcTenth(t){
@@ -284,9 +388,11 @@ $("takes").addEventListener("click", e => {
   const name = el.dataset.take, m = takeMeta(name), rec = S.recs.get(name); if (!m) return;
   if (e.target.closest(".tdel")) {
     if (!confirm(`テイク「${name}」を外す？（ファイルは消えない。置き方だけ消える）`)) return;
-    S.proj.takes = S.proj.takes.filter(x => x !== m); S.recs.delete(name); player.remove(name);
+    S.proj.takes = S.proj.takes.filter(x => x !== m); S.proj.clips = S.proj.clips.filter(c => c.take !== name); S.recs.delete(name);
+    for (const id of [...player.takes.keys()]) if (id === name || id.startsWith(name + "#")) player.remove(id);
     rebuildTimeline(); queueSave(); return;
   }
+  if (e.target.closest(".tplay")) { seek(m.offset); setPlay(true); return }
   if (e.target.closest(".thead")) {
     if (!rec || !rec.segs.length) { toast("発声が見つかっていない"); return }
     m.in = +Math.max(0, rec.segs[0][0] - 0.05).toFixed(3);
@@ -295,7 +401,23 @@ $("takes").addEventListener("click", e => {
   }
   if (e.target.closest(".tsel")) {
     const b = selBlock(); if (!b) { toast("先にブロックを選ぶ"); return }
-    m.offset = +b.t.toFixed(3); commitTake(name, { rerender: false }); toast(`「${name}」の頭を ${C.tc(b.t)} に置いた`);
+    m.offset = +b.t.toFixed(3); commitTake(name, { rerender: false }); toast(`「${name}」の頭を ${C.tc(b.t)} に置いた`); return;
+  }
+  if (e.target.closest(".talign")) {
+    const r = autoAlign(name); if (!r) return;
+    commitTake(name);
+    toast(`発声 ${r.segs} 束を ${r.blocks} ブロックに割り付けた` + (r.clips < r.blocks ? `（${r.blocks - r.clips} ブロックは発声が足りず空）` : "")); return;
+  }
+  if (e.target.closest(".tunalign")) {
+    S.proj.clips = S.proj.clips.filter(c => c.take !== name); commitTake(name); toast("割り付けを外した（テイク 1 本に戻る）"); return;
+  }
+  const tr = e.target.closest("tr[data-clip]");
+  if (tr) {
+    const c = S.proj.clips.find(x => x.take === name && x.block === tr.dataset.clip); if (!c) return;
+    const b = S.proj.blocks.find(x => x.id === c.block);
+    if (e.target.closest(".cnudge")) { c.at = +Math.max(0, c.at + (+e.target.closest(".cnudge").dataset.d)).toFixed(3); player.setOffset(name + "#" + c.block, c.at); rebuildTimeline(); queueSave(); return }
+    if (e.target.closest(".csnap") && b) { c.at = +b.t.toFixed(3); player.setOffset(name + "#" + c.block, c.at); rebuildTimeline(); queueSave(); return }
+    if (e.target.closest(".cplay")) { seek(c.at); setPlay(true); return }
   }
 });
 $("takes").addEventListener("change", e => {
@@ -308,6 +430,8 @@ $("takes").addEventListener("change", e => {
     if (t.classList.contains("tin")) { m.in = +v.toFixed(3); if (m.out != null && m.out <= m.in + 0.1) m.out = null; commitTake(name) }
     else if (t.classList.contains("tout")) { m.out = v == null ? null : +Math.max(m.in + 0.1, v).toFixed(3); commitTake(name) }
     else { m.offset = +v.toFixed(3); commitTake(name, { rerender: false }) }
+  } else if (t.classList.contains("tlane")) {
+    m.lane = t.value === "" ? null : +t.value; queueSave();
   } else if (t.classList.contains("tsec")) {
     if (t.value !== "") { m.offset = +(+t.value).toFixed(3); commitTake(name, { rerender: false }) }
   } else if (t.classList.contains("tspd")) {
@@ -324,7 +448,13 @@ $("takes").addEventListener("pointerdown", e => {
   const el = cv.closest(".take"), name = el.dataset.take, m = takeMeta(name), rec = S.recs.get(name); if (!m || !rec) return;
   const W = cv.clientWidth || cv.width, dur = rec.wav.duration;
   const xIn = m.in / dur * W, xOut = (m.out == null ? dur : m.out) / dur * W;
-  const which = Math.abs(e.offsetX - xIn) <= Math.abs(e.offsetX - xOut) ? "in" : "out";
+  const dIn = Math.abs(e.offsetX - xIn), dOut = Math.abs(e.offsetX - xOut);
+  if (Math.min(dIn, dOut) > 12) {                       // 取っ手から離れた所を押した：そこから聴く
+    const t = m.offset + Math.max(0, (e.offsetX / W * dur - m.in)) / m.speed;
+    if (!clipsOf(name).length) { seek(t); setPlay(true) }
+    return;
+  }
+  const which = dIn <= dOut ? "in" : "out";
   cv.setPointerCapture(e.pointerId);
   const move = ev => {
     const t = Math.max(0, Math.min(dur, ev.offsetX / W * dur));
@@ -340,14 +470,12 @@ $("takes").addEventListener("pointerdown", e => {
 });
 $("recThr").addEventListener("input", e => {
   S.proj.recThr = AU.fromDB(+e.target.value);
-  for (const rec of S.recs.values()) { detectRaw(rec); if (rec.out) { const r = AU.speechSegments(rec.out.A.rms, { thr: S.proj.recThr }); rec.out.segs = r.segs; rec.out.thr = r.thr } }
-  rebuildTimeline(); queueSave();
+  redetectAll(); rebuildTimeline(); queueSave();
 });
-$("recAuto").addEventListener("click", () => {
-  S.proj.recThr = null;
-  for (const rec of S.recs.values()) { detectRaw(rec); if (rec.out) { const r = AU.speechSegments(rec.out.A.rms, {}); rec.out.segs = r.segs; rec.out.thr = r.thr } }
-  rebuildTimeline(); queueSave();
-});
+$("recAuto").addEventListener("click", () => { S.proj.recThr = null; redetectAll(); rebuildTimeline(); queueSave(); });
+function redetectAll(){
+  for (const rec of S.recs.values()) { detectRaw(rec); if (rec.out) for (const p of rec.out.pieces) p.segs = AU.speechSegments(p.A.rms, { thr: S.proj.recThr }).segs }
+}
 /** 書き出し先フォルダから、未読込のテイクを名前で読む */
 async function loadTakesFromDir(ask){
   if (!DIR.handle || !S.proj.takes.some(m => !S.recs.get(m.name))) return 0;
@@ -360,6 +488,9 @@ async function loadTakesFromDir(ask){
   if (n) rebuildTimeline();
   return n;
 }
+function openRec(){ syncRecUI(); if (!$("dlgRec").open) $("dlgRec").showModal(); }
+$("recbtn").addEventListener("click", openRec);
+$("fRecOpen").addEventListener("click", () => { $("dlgFile").close(); openRec(); });
 $("recFromDir").addEventListener("click", async () => {
   const n = await loadTakesFromDir(true);
   toast(n ? `フォルダから ${n} 本読んだ` : "同じ名前の WAV がフォルダに無い");
@@ -439,6 +570,8 @@ function setPlay(v){
   $("play").setAttribute("aria-label", v ? "停止" : "再生");
   if (S.hasMedia) { v ? media.play().catch(() => {}) : media.pause(); }
   if (S.wav) { v ? player.play(S.t) : player.stop(); }
+  if (v && S.wav && !player.on) toast("日本語（録音）はオフになっている。「日本語」か J で入る");
+  if (v && S.wav && !player.playing && !S.hasMedia) toast("この位置には録音が無い（録音の画面で置き場所を確かめる）");
   if (v) { rafLast = performance.now(); requestAnimationFrame(tick); }
 }
 let rafLast = 0, lastSync = 0;
@@ -619,7 +752,7 @@ $("wavfile").addEventListener("change", async e => {
     catch (err) { toast(`${f.name}: 読めませんでした（${err && err.message || err}）`) }
   }
   rebuildTimeline();
-  if (n) toast(`録音を ${n} 本読んだ。発声 ${S.wav ? S.wav.segs.length : 0} 箇所`);
+  if (n) { toast(`録音を ${n} 本読んだ。発声 ${S.wav ? S.wav.segs.length : 0} 箇所`); openRec(); }
 });
 $("mediafile").addEventListener("change", e => {
   const f = e.target.files[0]; if (!f) return;
@@ -669,24 +802,89 @@ $("filebtn").addEventListener("click", () => {
   $("dlgFile").showModal();
 });
 
+/* ---------------- 訳文のハイライト ----------------
+   選んだ範囲を《…》で囲む。見た目は <mark>、保存は記号付きの文字列。
+   選択があると小さな帯（#hlbar）が出る。⌘⇧H / Ctrl+Shift+H でも */
+function serializeJa(el){
+  let out = "", depth = 0;
+  const walk = n => {
+    for (const k of n.childNodes) {
+      if (k.nodeType === 3) out += k.nodeValue;
+      else if (k.nodeName === "BR") out += "\n";
+      else if (k.nodeName === "MARK") { if (!depth) out += C.HL_OPEN; depth++; walk(k); depth--; if (!depth) out += C.HL_CLOSE }
+      else if (k.nodeName === "DIV" || k.nodeName === "P") { if (out && !out.endsWith("\n")) out += "\n"; walk(k) }
+      else walk(k);
+    }
+  };
+  walk(el);
+  return out.replace(/\n$/, "").replace(/《》/g, "");
+}
+const hlbar = $("hlbar"); let hlCtx = null, hlT = 0;
+function hlContext(){
+  const sel = document.getSelection(); if (!sel || !sel.rangeCount) return null;
+  const r = sel.getRangeAt(0);
+  const elOf = n => n.nodeType === 1 ? n : n.parentElement;
+  const ja = elOf(r.commonAncestorContainer)?.closest(".ja"); if (!ja || !ja.dataset.b) return null;
+  const m0 = elOf(r.startContainer)?.closest("mark"), m1 = elOf(r.endContainer)?.closest("mark");
+  const mark = m0 && m0 === m1 && ja.contains(m0) ? m0 : null;     // 範囲が 1 つのハイライトの中に収まっている
+  return { ja, range: r, collapsed: sel.isCollapsed, mark };
+}
+function updateHlbar(){
+  const c = hlContext();
+  if (!c || (c.collapsed && !c.mark)) { hlbar.hidden = true; hlCtx = null; return }
+  const rect = c.mark && c.collapsed ? c.mark.getBoundingClientRect() : c.range.getBoundingClientRect();
+  if (!rect.width && !rect.height) { hlbar.hidden = true; hlCtx = null; return }
+  hlCtx = c;
+  $("hlbtn").textContent = c.mark ? "ハイライトを外す" : "ハイライト";
+  hlbar.hidden = false;
+  const w = hlbar.offsetWidth, h = hlbar.offsetHeight;
+  hlbar.style.left = Math.max(6, Math.min(innerWidth - w - 6, rect.left)) + "px";
+  hlbar.style.top = Math.max(6, rect.top - h - 6) + "px";
+}
+function finishHl(ja){
+  const bid = ja.dataset.b, ci = +ja.dataset.c, b = S.proj.blocks.find(x => x.id === bid); if (!b) return;
+  const text = serializeJa(ja);
+  b.cells[ci].ja = text; ja.innerHTML = jaHTML(text);
+  repaintCell(bid, ci); queueSave();
+  const sel = document.getSelection(), r = document.createRange(); r.selectNodeContents(ja); r.collapse(false);
+  sel.removeAllRanges(); sel.addRange(r);
+  hlbar.hidden = true; hlCtx = null;
+}
+function toggleHighlight(c = hlContext()){
+  if (!c) return false;
+  if (c.mark) { c.mark.replaceWith(...c.mark.childNodes); finishHl(c.ja); toast("ハイライトを外した"); return true }
+  if (c.collapsed) return false;
+  const frag = c.range.extractContents();
+  frag.querySelectorAll("mark").forEach(m => m.replaceWith(...m.childNodes));
+  const mk = document.createElement("mark"); mk.appendChild(frag); c.range.insertNode(mk);
+  finishHl(c.ja); return true;
+}
+document.addEventListener("selectionchange", () => { clearTimeout(hlT); hlT = setTimeout(updateHlbar, 60) });
+hlbar.addEventListener("pointerdown", e => { e.preventDefault(); if (hlCtx) toggleHighlight(hlCtx) });
+addEventListener("scroll", () => { if (!hlbar.hidden) updateHlbar() }, true);
+
 /* --- シート --- */
 const sheet = $("sheet");
+sheet.addEventListener("keydown", e => {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "h" && e.target.closest(".ja")) { e.preventDefault(); toggleHighlight() }
+});
 sheet.addEventListener("input", e => {
   const ja = e.target.closest(".ja"), ka = e.target.closest(".kana");
   const el = ja || ka; if (!el) return;
   const bid = ja ? el.dataset.b : el.dataset.kb;
   const ci  = +(ja ? el.dataset.c : el.dataset.kc);
   const b = S.proj.blocks.find(x => x.id === bid); if (!b) return;
-  if (ja) b.cells[ci].ja = el.innerText.replace(/\n$/, "");
+  if (ja) b.cells[ci].ja = serializeJa(el);
   else    b.cells[ci].kana = el.innerText.replace(/\n$/, "");
   repaintCell(bid, ci);
   queueSave();
 });
 sheet.addEventListener("click", e => {
+  const unpin = e.target.closest("[data-unpin]");
+  if (unpin) { togglePinAt(+unpin.dataset.unpin); return }
   const pinAt = e.target.closest("[data-pin-at]");
-  if (pinAt) { togglePinAt(+pinAt.dataset.pinAt); return }
-  const pinRow = e.target.closest("[data-pin]");
-  if (pinRow && !e.target.closest(".card")) { togglePinAt(+pinRow.dataset.pin); return }
+  if (pinAt) { if (!C.hasPin(S.proj, +pinAt.dataset.pinAt)) togglePinAt(+pinAt.dataset.pinAt); else toast("ここにはもうピンがある。外すのはピンの行の ×"); return }
+  if (e.target.closest("[data-pin]") && !e.target.closest(".card")) return;   // ピンの行を押しても何も起きない
   const rec = e.target.closest("[data-rec]");
   if (rec) {
     const b = S.proj.blocks.find(x => x.id === rec.dataset.rec);
@@ -788,6 +986,7 @@ addEventListener("keydown", e => {
   else if (k === "j" && !$("jaon").disabled) $("jaon").click();
   else if (k === "v" && !$("vidwin").disabled) $("vidwin").click();
   else if (k === "f") $("viewmode").click();
+  else if (k === "t") openRec();
   else if (k === "r" && S.sel) {
     const b = selBlock(); b.rec = (b.rec + 1) % 3;
     const el = document.querySelector(`[data-rec="${b.id}"]`);
@@ -1112,6 +1311,13 @@ $("fSrt").addEventListener("click", () => {
   C.download(name + ".ja.srt", C.toSRT(S.proj), "text/plain");
   toast("SRT を書き出しました");
 });
+$("fSrtHl").addEventListener("click", () => {
+  const name = (S.proj.title || "dub").replace(/[^\w　-鿿-]+/g, "_");
+  const srt = C.toSRT(S.proj, { field: "hl" });
+  if (!srt.trim()) { toast("ハイライトがまだ無い。訳文を選んで「ハイライト」"); return }
+  C.download(name + ".highlights.srt", srt, "text/plain");
+  toast("ハイライトを SRT で書き出した");
+});
 $("fImport").addEventListener("click", () => { $("dlgFile").close(); openImport() });
 $("fLabels").addEventListener("click", () => {
   const name = (S.proj.title || "dub").replace(/[^\w　-鿿-]+/g, "_");
@@ -1138,16 +1344,18 @@ async function saveBlob(name, blob){
   } catch {}
   downloadBlob(name, blob); return "";
 }
-$("fTrack").addEventListener("click", async () => {
-  const live = S.proj.takes.map(m => ({ m, rec: S.recs.get(m.name) })).filter(x => x.rec && x.rec.out);
+async function exportTrack(){
+  const live = livePieces();
   if (!live.length) { toast("読み込まれたテイクがない"); return }
-  const sr = Math.max(...live.map(x => x.rec.out.wav.sampleRate));
-  const mix = AU.renderMix(live.map(x => ({ wav: x.rec.out.wav, offset: x.m.offset })), END(), sr);
+  const sr = Math.max(...live.map(x => x.p.wav.sampleRate));
+  const mix = AU.renderMix(live.map(x => ({ wav: x.p.wav, offset: x.p.at })), END(), sr);
   const blob = new Blob([AU.encodeWavFloat32([mix], sr)], { type: "audio/wav" });
   const name = projFileName().replace(/\.dubproj\.json$/, "") + ".ja.wav";
   const where = await saveBlob(name, blob);
-  toast(`日本語トラックを書き出した${where ? "（" + where + "）" : ""}：${C.tc(END())}、${sr}Hz、${live.length} テイク`);
-});
+  toast(`日本語トラックを書き出した${where ? "（" + where + "）" : ""}：${C.tc(END())}、${sr}Hz、${live.length} 片`);
+}
+$("fTrack").addEventListener("click", exportTrack);
+$("recTrack").addEventListener("click", exportTrack);
 
 $("fDict").addEventListener("click", () => { $("dlgFile").close(); drawDict(); $("dlgDict").showModal() });
 $("fTitle").addEventListener("input", e => { S.proj.title = e.target.value; queueSave() });

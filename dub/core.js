@@ -40,8 +40,19 @@ function applyDict(text, dict){
 }
 
 /** 訳文から推定。{ mora, exact } */
+/* ---------------- ハイライト ----------------
+   訳文の中で《…》で囲んだ範囲。カードでは地の色で塗って見せる（色は赤だけ、の掟なので灰）。
+   モーラ数・SRT・見出しでは記号を外す */
+export const HL_OPEN = "《", HL_CLOSE = "》";
+export const plainJa = s => String(s ?? "").replace(/[《》]/g, "");
+export function highlightsOf(s){
+  const out = [], re = /《([^《》]*)》/g; let m;
+  while ((m = re.exec(String(s ?? "")))) if (m[1].trim()) out.push(m[1].trim());
+  return out;
+}
+
 export function estimateMora(text, dict){
-  const s = applyDict(String(text || ""), dict);
+  const s = applyDict(plainJa(text), dict);
   let m = 0, exact = true, i = 0;
   while (i < s.length) {
     const ch = s[i];
@@ -104,6 +115,7 @@ export function newProject(o = {}){
     speedup: o.speedup ?? 1,            // 録音をあとで何倍速にするか。判定話速と限界に掛かる
     recThr: o.recThr > 0 ? +o.recThr : null, // 声のしきい値（rms）。null なら自動
     takes: (o.takes ?? []).map(newTake),     // 本番の録音（テイク）。音そのものは持たず、ファイル名と置き方だけ
+    clips: (o.clips ?? []).map(newClip).filter(c => c.take && c.block),  // テイクをブロックごとに切り出した割り付け
     pins: (o.pins ?? []).map(Number).filter(t => t >= 0).sort((a, b) => a - b),  // 手で打ったアンカー（秒）
     samples: o.samples ?? [],           // {kind:'base'|'limit', mora, sec, note, at}
     dict: o.dict ?? {},
@@ -121,6 +133,17 @@ export function newTake(o = {}){
     in: Math.max(0, +(o.in ?? 0) || 0),
     out: o.out == null || !(+o.out > 0) ? null : +o.out,
     speed: Math.min(2, Math.max(0.5, +(o.speed ?? 1) || 1)),
+    lane: o.lane == null || o.lane === "" ? null : +o.lane,   // 割り付けの対象レーン。null なら全部
+  };
+}
+/** 割り付け＝テイクの中の [in,out]（WAV 秒）を、ブロック block の時間軸 at 秒に置く */
+export function newClip(o = {}){
+  return {
+    take: String(o.take ?? ""),
+    block: String(o.block ?? ""),
+    in: Math.max(0, +(o.in ?? 0) || 0),
+    out: Math.max(0, +(o.out ?? 0) || 0),
+    at: Math.max(0, +(o.at ?? 0) || 0),
   };
 }
 
@@ -290,7 +313,7 @@ export function cuesToBlocks(cues, { gap = 0.7, lane = 0, kind = "LIP" } = {}){
 export function toSRT(proj, { field = "ja" } = {}){
   let n = 0, out = [];
   for (const { c, t } of eachCell(proj)) {
-    const txt = (field === "ja" ? c.ja : c.en || "").trim();
+    const txt = (field === "ja" ? plainJa(c.ja) : field === "hl" ? highlightsOf(c.ja).join("／") : c.en || "").trim();
     if (!txt) continue;
     n++;
     out.push(n + "\n" + srtTime(t) + " --> " + srtTime(t + (+c.dur || 0)) + "\n" + txt + "\n");

@@ -81,7 +81,7 @@ export const fromDB = d => Math.pow(10, d / 20);
 export function speechSegments(rms, opt = {}){
   const st = noiseStats(rms);
   const thr = opt.thr > 0 ? opt.thr : st.auto, low = thr * 0.6;
-  const onN = 2, offN = 50, minLen = 16;
+  const onN = 2, offN = opt.offN > 0 ? opt.offN : 50, minLen = 16;   // offN: 抜けの粘り（5ms 刻み）
   const segs = [];
   let on = false, start = 0, above = 0, below = 0;
   for (let i = 0; i < rms.length; i++) {
@@ -253,7 +253,7 @@ export function encodeWavFloat32(chs, sampleRate){
 
 /** テイクの帯（ファイル画面）：生の包絡全体。入り/出の外は薄く、発声は下線、入り/出の位置に取っ手 */
 export function drawTakeStrip(canvas, A, opt){
-  const { duration, tin = 0, tout = null, segs = [] } = opt;
+  const { duration, tin = 0, tout = null, segs = [], clips = [] } = opt;
   const W = canvas.width, H = canvas.height, g = canvas.getContext("2d");
   const end = tout == null ? duration : tout;
   g.clearRect(0, 0, W, H);
@@ -271,6 +271,14 @@ export function drawTakeStrip(canvas, A, opt){
   }
   g.fillStyle = "#16181a";
   for (const [a, b] of segs) { const xs = xOf(a), xe = xOf(b); g.fillRect(xs, H - 2, Math.max(1, xe - xs), 2) }
+  // 割り付け（ブロックごとの切り出し）：上辺に交互の帯と番号
+  clips.forEach((c, i) => {
+    const xs = xOf(c.in), xe = xOf(c.out);
+    g.fillStyle = i % 2 ? "#9aa0a6" : "#4d545a"; g.fillRect(xs, 0, Math.max(1, xe - xs), 4);
+    g.fillStyle = "#16181a"; g.fillRect(Math.round(xs), 0, 1, H);
+    g.font = "10px sans-serif"; g.fillStyle = "#4d545a"; g.fillText(String(i + 1), xs + 3, 15);
+  });
+  g.fillStyle = "#16181a";
   for (const t of [tin, end]) { const x = Math.round(xOf(t)); g.fillRect(x - 1, 0, 2, H); g.fillRect(x - 4, 0, 8, 5); g.fillRect(x - 4, H - 5, 8, 5) }
 }
 
@@ -281,7 +289,7 @@ export function toAudacityLabels(proj, tc){
   for (const t of proj.pins || []) lines.push(`${t.toFixed(3)}\t${t.toFixed(3)}\tPIN ${tc(t)}`);
   for (const b of proj.blocks) {
     const dur = b.kind === "SILENT" ? (b.dur || 0) : b.cells.reduce((s, c) => s + (+c.dur || 0), 0);
-    const head = (b.cells?.[0]?.ja || b.cells?.[0]?.en || "").slice(0, 24).replace(/\s+/g, " ");
+    const head = (b.cells?.[0]?.ja || b.cells?.[0]?.en || "").replace(/[《》]/g, "").slice(0, 24).replace(/\s+/g, " ");
     lines.push(`${b.t.toFixed(3)}\t${(b.t + dur).toFixed(3)}\t${proj.lanes[b.lane]}${head ? " " + head : ""}`);
   }
   return lines.join("\n") + "\n";
