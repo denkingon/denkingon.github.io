@@ -7,15 +7,15 @@
 <meta name="description" content="固定された秒数の枠に日本語が入るかどうかを、カードを開かずに見つけるための吹き替え作業画面。">
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%231a1c1e'/%3E%3Crect x='18' y='20' width='64' height='12' fill='%234d545a'/%3E%3Crect x='18' y='44' width='64' height='12' fill='%23c03a2b'/%3E%3Crect x='18' y='68' width='40' height='12' fill='%234d545a'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=202609210628">
+<link rel="stylesheet" href="style.css?v=202609210638">
 <!-- 版の固定：index.html を読み直せば JS 全部が同じ版で揃う（GitHub Pages のキャッシュで新旧が混ざらないように）。
      stamp.mjs で ?v= を一括更新する -->
 <script type="importmap">
 { "imports": {
-  "./core.js":   "./core.js?v=202609210628",
-  "./view.js":   "./view.js?v=202609210628",
-  "./audio.js":  "./audio.js?v=202609210628",
-  "./sample.js": "./sample.js?v=202609210628"
+  "./core.js":   "./core.js?v=202609210638",
+  "./view.js":   "./view.js?v=202609210638",
+  "./audio.js":  "./audio.js?v=202609210638",
+  "./sample.js": "./sample.js?v=202609210638"
 } }
 </script>
 <script>
@@ -258,7 +258,7 @@
       消える場所なので、区切りごとに書き出しておくこと。</p>
     <div class="row">
       <button class="tg" id="fSave">JSON を書き出す</button>
-      <label class="tg" for="fLoad" style="cursor:pointer">JSON を読み込む</label>
+      <button class="tg" id="fLoadBtn">JSON を読み込む…</button>
       <input type="file" id="fLoad" accept=".json,application/json" hidden>
       <button class="tg" id="fImport">SRT / VTT を取り込む…</button>
       <button class="tg" id="fSrt">訳文を SRT で書き出す</button>
@@ -346,7 +346,7 @@
     <input type="file" id="wavfile" accept=".wav,.WAV,audio/wav,audio/x-wav,audio/wave,audio/*" multiple hidden>
     <input type="file" id="wavAttach" accept=".wav,.WAV,audio/wav,audio/x-wav,audio/wave,audio/*" hidden>
     <div class="row">
-      <label class="tg" for="wavfile" style="cursor:pointer" title="WAV を選ぶ。行の名前と同じファイルならその行に付く。違えば新しいテイク">録音を足す…</label>
+      <button class="tg" id="recAdd" title="WAV を選ぶ。行の名前と同じファイルならその行に付く。違えば新しいテイク">録音を足す…</button>
       <button class="tg" id="recDir" title="WAV を置いてあるフォルダ。ここに同じ名前の WAV があれば、開いたときに自動で読む">録音のフォルダを選ぶ…</button>
       <span class="hint" id="recDirName"></span>
       <button class="tg" id="recFromDir" hidden>フォルダから読む</button>
@@ -372,6 +372,6 @@
 <div id="hlbar" hidden><button class="tg" id="hlbtn">ハイライト</button><span class="hint">⌘⇧H</span></div>
 <canvas id="canvas" hidden width="320" height="180"></canvas>
 
-<script type="module" src="app.js?v=202609210628"></script>
+<script type="module" src="app.js?v=202609210638"></script>
 </body>
 </html>

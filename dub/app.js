@@ -768,6 +768,9 @@ $("vidwin").addEventListener("click", e => {
   const v = e.currentTarget.getAttribute("aria-pressed") !== "true";
   e.currentTarget.setAttribute("aria-pressed", String(v)); $("vwin").hidden = !v;
 });
+// ダイアログの中では <label> がボタンに見えない（dialog .row>label の見出しの体裁になる）ので、ボタンから file input を叩く
+$("recAdd").addEventListener("click", () => { $("wavfile").value = ""; $("wavfile").click() });
+$("fLoadBtn").addEventListener("click", () => { $("fLoad").value = ""; $("fLoad").click() });
 $("wavAttach").addEventListener("change", async e => {
   const f = e.target.files[0]; e.target.value = ""; const to = S.attachTo; S.attachTo = null;
   if (!f || !to) return;
