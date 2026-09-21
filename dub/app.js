@@ -303,7 +303,8 @@ function syncRecUI(){
   $("recThr").value = Math.round(AU.dB(thrShown));
   $("recThrVal").textContent = (manual ? "" : "自動 ") + `${Math.round(AU.dB(thrShown))} dBFS`;
   $("recAuto").hidden = !manual;
-  $("recFromDir").hidden = !(DIR.handle && takes.some(m => !S.recs.get(m.name)));
+  $("recFromDir").hidden = !((DIR.handle || RECDIR.handle) && takes.some(m => !S.recs.get(m.name)));
+  syncRecDirUI();
   if (!w) {
     $("recDiag").textContent = takes.length
       ? "テイクの音がまだ読まれていない。「録音を足す…」で同じ名前の WAV を読むか、書き出し先フォルダに置いて「フォルダから読む」"
@@ -325,7 +326,7 @@ function renderTakeList(){
       ? `${rec.format} ${rec.wav.sampleRate}Hz ${rec.wav.channels}ch ${C.tc(rec.wav.duration)}　発声 ${rec.segs.length}` + (clips.length ? `　割り付け ${clips.length} ブロック` : "")
       : "";
     return `<div class="take" data-take="${escT(m.name)}">
-      <div class="trow"><b class="tname">${escT(m.name)}</b><span class="hint">${info}</span>${rec ? "" : `<span class="hint miss">未読込</span>`}<span style="flex:1"></span>${rec && !clips.length ? `<button class="tg tplay" title="置いた所から聴く">▶ ${tcTenth(m.offset)}–${tcTenth(m.offset + ((m.out == null ? rec.wav.duration : m.out) - m.in) / m.speed)}</button>` : ""}<button class="tg tdel">外す</button></div>
+      <div class="trow"><b class="tname">${escT(m.name)}</b><span class="hint">${info}</span>${rec ? "" : `<span class="hint miss">未読込</span><button class="tg tattach" title="この行に付ける WAV を選ぶ。名前が違っても付く（行の名前がそのファイルの名前になる）">このファイルを選ぶ…</button>`}<span style="flex:1"></span>${rec && !clips.length ? `<button class="tg tplay" title="置いた所から聴く">▶ ${tcTenth(m.offset)}–${tcTenth(m.offset + ((m.out == null ? rec.wav.duration : m.out) - m.in) / m.speed)}</button>` : ""}<button class="tg tdel">外す</button></div>
       ${rec ? `<canvas class="tstrip" width="800" height="56" title="取っ手をつかんで入り／出を動かす"></canvas>` : ""}
       <div class="trow">
         <label>入り</label><input type="text" class="tin" value="${tcTenth(m.in)}">
@@ -393,6 +394,7 @@ $("takes").addEventListener("click", e => {
     rebuildTimeline(); queueSave(); return;
   }
   if (e.target.closest(".tplay")) { seek(m.offset); setPlay(true); return }
+  if (e.target.closest(".tattach")) { S.attachTo = name; $("wavAttach").value = ""; $("wavAttach").click(); return }
   if (e.target.closest(".thead")) {
     if (!rec || !rec.segs.length) { toast("発声が見つかっていない"); return }
     m.in = +Math.max(0, rec.segs[0][0] - 0.05).toFixed(3);
@@ -476,25 +478,48 @@ $("recAuto").addEventListener("click", () => { S.proj.recThr = null; redetectAll
 function redetectAll(){
   for (const rec of S.recs.values()) { detectRaw(rec); if (rec.out) for (const p of rec.out.pieces) p.segs = AU.speechSegments(p.A.rms, { thr: S.proj.recThr }).segs }
 }
-/** 書き出し先フォルダから、未読込のテイクを名前で読む */
+/** 録音のフォルダ（WAV の置き場所）。書き出し先とは別に持てる。handle は IndexedDB に残す */
+const RECDIR = { handle: null, name: "" };
+async function recdirPermitted(ask){
+  if (!RECDIR.handle) return false;
+  try { const opt = { mode: "read" }; if (await RECDIR.handle.queryPermission(opt) === "granted") return true; return ask ? await RECDIR.handle.requestPermission(opt) === "granted" : false } catch { return false }
+}
+/** 録音のフォルダ → 書き出し先フォルダの順に、未読込のテイクを名前で探して読む */
 async function loadTakesFromDir(ask){
-  if (!DIR.handle || !S.proj.takes.some(m => !S.recs.get(m.name))) return 0;
-  if (!await dirPermitted(ask)) return 0;
+  const missing = () => S.proj.takes.filter(m => !S.recs.get(m.name));
+  if (!missing().length) return 0;
   let n = 0;
-  for (const m of S.proj.takes) {
-    if (S.recs.get(m.name)) continue;
-    try { const fh = await DIR.handle.getFileHandle(m.name); await addTakeFile(await fh.getFile()); n++ } catch {}
-  }
+  const tryDir = async (h) => {
+    for (const m of missing()) {
+      try { const fh = await h.getFileHandle(m.name); await addTakeFile(await fh.getFile()); n++ } catch {}
+    }
+  };
+  if (RECDIR.handle && await recdirPermitted(ask)) await tryDir(RECDIR.handle);
+  if (missing().length && DIR.handle && await dirPermitted(ask)) await tryDir(DIR.handle);
   if (n) rebuildTimeline();
   return n;
 }
+function syncRecDirUI(){
+  const el = $("recDirName"); if (!el) return;
+  el.textContent = RECDIR.name ? `録音のフォルダ：${RECDIR.name}` : (DIR.name ? `（書き出し先「${DIR.name}」も探す）` : "");
+}
+$("recDir").addEventListener("click", async () => {
+  if (!("showDirectoryPicker" in window)) { toast("このブラウザでは使えない（Chrome / Edge）"); return }
+  try {
+    const h = await window.showDirectoryPicker({ mode: "read", id: "dub-rec" });
+    RECDIR.handle = h; RECDIR.name = h.name; await kvPut("recdir", h); syncRecDirUI();
+    const n = await loadTakesFromDir(true);
+    toast(n ? `「${h.name}」から ${n} 本読んだ` : `「${h.name}」に、行と同じ名前の WAV が無い`);
+    syncRecUI();
+  } catch (e) { if (e && e.name !== "AbortError") toast("フォルダを開けませんでした") }
+});
+$("recFromDir").addEventListener("click", async () => {
+  const n = await loadTakesFromDir(true);
+  toast(n ? `フォルダから ${n} 本読んだ` : "行と同じ名前の WAV がフォルダに無い。行の「このファイルを選ぶ…」で直接付けられる");
+});
 function openRec(){ syncRecUI(); if (!$("dlgRec").open) $("dlgRec").showModal(); }
 $("recbtn").addEventListener("click", openRec);
 $("fRecOpen").addEventListener("click", () => { $("dlgFile").close(); openRec(); });
-$("recFromDir").addEventListener("click", async () => {
-  const n = await loadTakesFromDir(true);
-  toast(n ? `フォルダから ${n} 本読んだ` : "同じ名前の WAV がフォルダに無い");
-});
 
 /* 波形の帯：見えたカードから描く */
 const wio = new IntersectionObserver(es => {
@@ -743,6 +768,20 @@ $("vidwin").addEventListener("click", e => {
   const v = e.currentTarget.getAttribute("aria-pressed") !== "true";
   e.currentTarget.setAttribute("aria-pressed", String(v)); $("vwin").hidden = !v;
 });
+$("wavAttach").addEventListener("change", async e => {
+  const f = e.target.files[0]; e.target.value = ""; const to = S.attachTo; S.attachTo = null;
+  if (!f || !to) return;
+  const m = takeMeta(to); if (!m) return;
+  try {
+    if (f.name !== m.name) {
+      if (takeMeta(f.name)) { toast(`「${f.name}」はもう別の行にある`); return }
+      for (const c of S.proj.clips) if (c.take === m.name) c.take = f.name;
+      m.name = f.name;
+    }
+    await addTakeFile(f); rebuildTimeline(); queueSave();
+    toast(`「${f.name}」を付けた。発声 ${S.recs.get(f.name).segs.length} 箇所`);
+  } catch (err) { toast(`${f.name}: 読めませんでした（${err && err.message || err}）`) }
+});
 $("wavfile").addEventListener("change", async e => {
   const files = [...e.target.files]; e.target.value = ""; if (!files.length) return;
   $("wavhint").textContent = "読んでいます…";
@@ -752,7 +791,11 @@ $("wavfile").addEventListener("change", async e => {
     catch (err) { toast(`${f.name}: 読めませんでした（${err && err.message || err}）`) }
   }
   rebuildTimeline();
-  if (n) { toast(`録音を ${n} 本読んだ。発声 ${S.wav ? S.wav.segs.length : 0} 箇所`); openRec(); }
+  if (n) {
+    const missing = S.proj.takes.filter(m => !S.recs.get(m.name)).length;
+    toast(`録音を ${n} 本読んだ。発声 ${S.wav ? S.wav.segs.length : 0} 箇所` + (missing ? `。未読込の行が ${missing} つ残っている（名前が違う。行の「このファイルを選ぶ…」で付ける）` : ""));
+    openRec();
+  }
 });
 $("mediafile").addEventListener("change", e => {
   const f = e.target.files[0]; if (!f) return;
@@ -1248,6 +1291,8 @@ const dirDB = () => new Promise((res, rej) => {
   r.onupgradeneeded = () => r.result.createObjectStore("kv");
   r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
 });
+async function kvGet(key){ try { const db = await dirDB(); return await new Promise((res, rej) => { const q = db.transaction("kv").objectStore("kv").get(key); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error) }) } catch { return null } }
+async function kvPut(key, v){ try { const db = await dirDB(); await new Promise((res, rej) => { const tx = db.transaction("kv", "readwrite"); if (v) tx.objectStore("kv").put(v, key); else tx.objectStore("kv").delete(key); tx.oncomplete = res; tx.onerror = () => rej(tx.error) }) } catch {} }
 async function dirGet(){ try { const db = await dirDB(); return await new Promise((res, rej) => { const q = db.transaction("kv").objectStore("kv").get("dir"); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error) }) } catch { return null } }
 async function dirPut(h){ try { const db = await dirDB(); await new Promise((res, rej) => { const tx = db.transaction("kv", "readwrite"); if (h) tx.objectStore("kv").put(h, "dir"); else tx.objectStore("kv").delete("dir"); tx.oncomplete = res; tx.onerror = () => rej(tx.error) }) } catch {} }
 const projFileName = () => (S.proj.title || "dub").replace(/[^\w　-鿿-]+/g, "_") + ".dubproj.json";
@@ -1280,7 +1325,8 @@ function scheduleDirWrite(){
 }
 dirGet().then(async h => {
   if (h && h.kind === "directory") { DIR.handle = h; DIR.name = h.name; }
-  syncDirUI();
+  const r = await kvGet("recdir"); if (r && r.kind === "directory") { RECDIR.handle = r; RECDIR.name = r.name; }
+  syncDirUI(); syncRecDirUI();
   const n = await loadTakesFromDir(false); if (n) toast(`フォルダから録音を ${n} 本読んだ`);
   syncRecUI();
 });
