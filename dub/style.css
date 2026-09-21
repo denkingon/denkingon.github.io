@@ -438,3 +438,5 @@ kbd{
 .pintc .unpin{position:absolute; left:-2px; top:5px}
 .pinflow .unpin{margin-left:10px}
 .unpin:hover{opacity:1; color:var(--bright); border-color:var(--ctext2)}
+.take.muted{opacity:.62; background:#f4f4ef}
+.take.muted .tstrip{filter:grayscale(1) contrast(.7)}

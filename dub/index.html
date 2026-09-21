@@ -7,15 +7,15 @@
 <meta name="description" content="固定された秒数の枠に日本語が入るかどうかを、カードを開かずに見つけるための吹き替え作業画面。">
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%231a1c1e'/%3E%3Crect x='18' y='20' width='64' height='12' fill='%234d545a'/%3E%3Crect x='18' y='44' width='64' height='12' fill='%23c03a2b'/%3E%3Crect x='18' y='68' width='40' height='12' fill='%234d545a'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=202609210638">
+<link rel="stylesheet" href="style.css?v=202609210703">
 <!-- 版の固定：index.html を読み直せば JS 全部が同じ版で揃う（GitHub Pages のキャッシュで新旧が混ざらないように）。
      stamp.mjs で ?v= を一括更新する -->
 <script type="importmap">
 { "imports": {
-  "./core.js":   "./core.js?v=202609210638",
-  "./view.js":   "./view.js?v=202609210638",
-  "./audio.js":  "./audio.js?v=202609210638",
-  "./sample.js": "./sample.js?v=202609210638"
+  "./core.js":   "./core.js?v=202609210703",
+  "./view.js":   "./view.js?v=202609210703",
+  "./audio.js":  "./audio.js?v=202609210703",
+  "./sample.js": "./sample.js?v=202609210703"
 } }
 </script>
 <script>
@@ -359,7 +359,8 @@
     </div>
     <p class="note" id="recDiag">録音なし。テイク（区間ごとに録った WAV）を何本でも足せる。音は触らず、置き方だけを JSON に残す。</p>
     <p class="note">やり方：①テイクを足す　②「頭の沈黙を切る」　③開始位置を区間の頭に置く　④「ブロックに割り付ける」で、原稿の長さ（モーラ）の比で発声をブロックに分けて、それぞれ枠の頭に置く。
-      ずれていたら表の ◁ ▷ で 0.1 秒ずつ動かす。伸縮はテイク単位。</p>
+      ずれていたら表の ◁ ▷ で 0.1 秒ずつ動かす。伸縮はテイク単位。
+      撮り直しは同じ所にもう 1 本足す（重なる分は消音で足される）。行の ▶ を押すたびに鳴る方が切り替わるので、再生しながら聴き比べて、負けた方を「外す」。</p>
     <div id="takes"></div>
   </div>
   <div class="dfoot"><button class="tg" data-close>閉じる</button></div>
@@ -372,6 +373,6 @@
 <div id="hlbar" hidden><button class="tg" id="hlbtn">ハイライト</button><span class="hint">⌘⇧H</span></div>
 <canvas id="canvas" hidden width="320" height="180"></canvas>
 
-<script type="module" src="app.js?v=202609210638"></script>
+<script type="module" src="app.js?v=202609210703"></script>
 </body>
 </html>
