@@ -219,11 +219,14 @@ function takeSpan(m){
   const len = ((m.out == null ? (rec ? rec.wav.duration : 0) : m.out) - m.in) / m.speed;
   return [m.offset, m.offset + len];
 }
-/** 2 つのテイクが時間軸で（長い方の 3 割以上）重なるか */
+/** 2 つのテイクが「同じ所の撮り直し」か：時間軸で重なり、かつ頭が近い（3 秒以内）か同じ区間の中 */
 function takesOverlap(a, b){
   const [a0, a1] = takeSpan(a), [b0, b1] = takeSpan(b);
-  const ov = Math.min(a1, b1) - Math.max(a0, b0);
-  return ov > 0.3 * Math.max(a1 - a0, b1 - b0, 0.001);
+  if (Math.min(a1, b1) - Math.max(a0, b0) <= 0) return false;
+  if (Math.abs(a0 - b0) < 3) return true;
+  const pins = S.proj.pins || [], secOf = t => { let i = -1; for (let k = 0; k + 1 < pins.length; k++) if (t >= pins[k] - 1e-6 && t < pins[k + 1] - 1e-6) i = k; return i };
+  const sa = secOf(a0), sb = secOf(b0);
+  return sa >= 0 && sa === sb;
 }
 /** これだけ聴く：重なる他のテイクを消音し、これを鳴らす。再生中なら位置はそのまま（聴き比べ） */
 function soloTake(name){
