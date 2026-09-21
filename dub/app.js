@@ -881,7 +881,11 @@ sheet.addEventListener("input", e => {
 });
 sheet.addEventListener("click", e => {
   const unpin = e.target.closest("[data-unpin]");
-  if (unpin) { togglePinAt(+unpin.dataset.unpin); return }
+  if (unpin) {                                            // 外すのは × を押して、さらに確認してから
+    const t = +unpin.dataset.unpin;
+    if (confirm(`${C.tc(t)} のピンを外す？（区間の判定が変わる）`)) togglePinAt(t);
+    return;
+  }
   const pinAt = e.target.closest("[data-pin-at]");
   if (pinAt) { if (!C.hasPin(S.proj, +pinAt.dataset.pinAt)) togglePinAt(+pinAt.dataset.pinAt); else toast("ここにはもうピンがある。外すのはピンの行の ×"); return }
   if (e.target.closest("[data-pin]") && !e.target.closest(".card")) return;   // ピンの行を押しても何も起きない
