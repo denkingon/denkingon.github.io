@@ -134,6 +134,7 @@ export function newTake(o = {}){
     out: o.out == null || !(+o.out > 0) ? null : +o.out,
     speed: Math.min(2, Math.max(0.5, +(o.speed ?? 1) || 1)),
     lane: o.lane == null || o.lane === "" ? null : +o.lane,   // 割り付けの対象レーン。null なら全部
+    mute: !!o.mute,                       // 消音。聴き比べで負けた方／まだ選んでいない方
   };
 }
 /** 割り付け＝テイクの中の [in,out]（WAV 秒）を、ブロック block の時間軸 at 秒に置く */

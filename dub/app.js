@@ -166,7 +166,12 @@ async function addTakeFile(f){
   const wav = AU.parseWav(await f.arrayBuffer());
   const rec = { name: f.name, wav, format: wav.format, A: AU.envelope(wav), segs: [], out: null };
   S.recs.set(f.name, rec);
-  if (!takeMeta(f.name)) S.proj.takes.push(C.newTake({ name: f.name, offset: suggestOffset() }));
+  if (!takeMeta(f.name)) {
+    const m = C.newTake({ name: f.name, offset: suggestOffset() });
+    S.proj.takes.push(m);
+    // 同じ所に別のテイクがもう鳴っているなら、こちらは消音で足す（重ねて鳴らさない。「これを聴く」で聴き比べ）
+    if (S.proj.takes.some(o => o !== m && !o.mute && S.recs.get(o.name) && takesOverlap(o, m))) { m.mute = true; rec.addedMuted = true }
+  }
   detectRaw(rec); renderTake(f.name);
   return rec;
 }
@@ -198,13 +203,40 @@ function renderTake(name){
     const i0 = idx(m.in), i1 = m.out == null ? fr : Math.max(i0 + 1, idx(m.out));
     const p = renderPiece(rec, i0, i1, m.speed); p.at = m.offset; p.id = name; pieces.push(p);
   }
-  for (const p of pieces) player.setTake(p.id, p.wav, p.at);
+  if (!m.mute) for (const p of pieces) player.setTake(p.id, p.wav, p.at);
   rec.out = { pieces };
 }
+/** 鳴らす片（消音のテイクは除く）。再生・包絡・帰属・書き出しは全部これから組む */
 function livePieces(){
   const out = [];
-  for (const m of S.proj.takes) { const rec = S.recs.get(m.name); if (rec && rec.out) for (const p of rec.out.pieces) out.push({ m, rec, p }) }
+  for (const m of S.proj.takes) { if (m.mute) continue; const rec = S.recs.get(m.name); if (rec && rec.out) for (const p of rec.out.pieces) out.push({ m, rec, p }) }
   return out;
+}
+/** テイクが時間軸で占める範囲 [t0, t1) */
+function takeSpan(m){
+  const rec = S.recs.get(m.name), clips = clipsOf(m.name);
+  if (clips.length) return [Math.min(...clips.map(c => c.at)), Math.max(...clips.map(c => c.at + (c.out - c.in) / m.speed))];
+  const len = ((m.out == null ? (rec ? rec.wav.duration : 0) : m.out) - m.in) / m.speed;
+  return [m.offset, m.offset + len];
+}
+/** 2 つのテイクが時間軸で（長い方の 3 割以上）重なるか */
+function takesOverlap(a, b){
+  const [a0, a1] = takeSpan(a), [b0, b1] = takeSpan(b);
+  const ov = Math.min(a1, b1) - Math.max(a0, b0);
+  return ov > 0.3 * Math.max(a1 - a0, b1 - b0, 0.001);
+}
+/** これだけ聴く：重なる他のテイクを消音し、これを鳴らす。再生中なら位置はそのまま（聴き比べ） */
+function soloTake(name){
+  const m = takeMeta(name); if (!m) return;
+  // 先にこれを鳴らし、それから重なる方を消音する（逆だと一瞬鳴るものが無くなって再生が止まる）
+  let n = 0;
+  if (m.mute) { m.mute = false; if (S.recs.get(name)) renderTake(name) }
+  for (const o of S.proj.takes) if (o !== m && !o.mute && takesOverlap(o, m)) { o.mute = true; n++; if (S.recs.get(o.name)) renderTake(o.name) }
+  const changed = new Array(n + 1);
+  rebuildTimeline(); queueSave();
+  const [t0] = takeSpan(m);
+  if (!S.playing || S.t < t0 - 0.05 || S.t > takeSpan(m)[1]) { seek(t0); setPlay(true) }
+  toast(changed.length > 1 ? `「${name}」を鳴らす（重なる ${changed.length - 1} 本は消音）` : `「${name}」を鳴らす`);
 }
 /** 全テイクの全片を時間軸に重ねて S.wav（包絡と発声）を作り直す */
 function rebuildTimeline(){
@@ -325,8 +357,9 @@ function renderTakeList(){
     const info = rec
       ? `${rec.format} ${rec.wav.sampleRate}Hz ${rec.wav.channels}ch ${C.tc(rec.wav.duration)}　発声 ${rec.segs.length}` + (clips.length ? `　割り付け ${clips.length} ブロック` : "")
       : "";
-    return `<div class="take" data-take="${escT(m.name)}">
-      <div class="trow"><b class="tname">${escT(m.name)}</b><span class="hint">${info}</span>${rec ? "" : `<span class="hint miss">未読込</span><button class="tg tattach" title="この行に付ける WAV を選ぶ。名前が違っても付く（行の名前がそのファイルの名前になる）">このファイルを選ぶ…</button>`}<span style="flex:1"></span>${rec && !clips.length ? `<button class="tg tplay" title="置いた所から聴く">▶ ${tcTenth(m.offset)}–${tcTenth(m.offset + ((m.out == null ? rec.wav.duration : m.out) - m.in) / m.speed)}</button>` : ""}<button class="tg tdel">外す</button></div>
+    const rival = S.proj.takes.find(o => o !== m && S.recs.get(o.name) && rec && takesOverlap(o, m));
+    return `<div class="take${m.mute ? " muted" : ""}" data-take="${escT(m.name)}">
+      <div class="trow"><b class="tname">${escT(m.name)}</b><span class="hint">${info}</span>${rec ? "" : `<span class="hint miss">未読込</span><button class="tg tattach" title="この行に付ける WAV を選ぶ。名前が違っても付く（行の名前がそのファイルの名前になる）">このファイルを選ぶ…</button>`}<span style="flex:1"></span>${rec ? `<button class="tg tsolo" title="${rival ? "重なる他のテイクを消音して、これを鳴らす。再生中なら位置はそのままで切り替わる（聴き比べ）" : "これを置いた所から聴く"}">${m.mute ? "▶ これを聴く" : rival ? "▶ こちらを鳴らす" : `▶ ${tcTenth(takeSpan(m)[0])}–${tcTenth(takeSpan(m)[1])}`}</button>` : ""}${rec ? `<button class="tg tmute" title="${m.mute ? "鳴るようにする" : "鳴らさない（帯と判定からも外れる）"}">${m.mute ? "消音中" : "消音"}</button>` : ""}<button class="tg tdel">外す</button></div>${m.mute ? `<div class="hint miss">消音中：鳴らない。帯・判定・日本語トラックにも入らない${rival ? `。重なっている「${escT(rival.name)}」と聴き比べ中` : ""}</div>` : rival ? `<div class="hint">同じ所に「${escT(rival.name)}」もある。上の ▶ で切り替えて聴き比べる</div>` : ""}
       ${rec ? `<canvas class="tstrip" width="800" height="56" title="取っ手をつかんで入り／出を動かす"></canvas>` : ""}
       <div class="trow">
         <label>入り</label><input type="text" class="tin" value="${tcTenth(m.in)}">
@@ -393,7 +426,11 @@ $("takes").addEventListener("click", e => {
     for (const id of [...player.takes.keys()]) if (id === name || id.startsWith(name + "#")) player.remove(id);
     rebuildTimeline(); queueSave(); return;
   }
-  if (e.target.closest(".tplay")) { seek(m.offset); setPlay(true); return }
+  if (e.target.closest(".tsolo")) { soloTake(name); return }
+  if (e.target.closest(".tmute")) {
+    m.mute = !m.mute; if (S.recs.get(name)) renderTake(name); rebuildTimeline(); queueSave();
+    toast(m.mute ? `「${name}」を消音` : `「${name}」を鳴らす`); return;
+  }
   if (e.target.closest(".tattach")) { S.attachTo = name; $("wavAttach").value = ""; $("wavAttach").click(); return }
   if (e.target.closest(".thead")) {
     if (!rec || !rec.segs.length) { toast("発声が見つかっていない"); return }
@@ -796,7 +833,10 @@ $("wavfile").addEventListener("change", async e => {
   rebuildTimeline();
   if (n) {
     const missing = S.proj.takes.filter(m => !S.recs.get(m.name)).length;
-    toast(`録音を ${n} 本読んだ。発声 ${S.wav ? S.wav.segs.length : 0} 箇所` + (missing ? `。未読込の行が ${missing} つ残っている（名前が違う。行の「このファイルを選ぶ…」で付ける）` : ""));
+    const muted = files.filter(f => S.recs.get(f.name) && S.recs.get(f.name).addedMuted).length;
+    toast(`録音を ${n} 本読んだ。発声 ${S.wav ? S.wav.segs.length : 0} 箇所` +
+      (muted ? `。${muted} 本は同じ所に別のテイクがあるので消音で足した（「これを聴く」で聴き比べ）` : "") +
+      (missing ? `。未読込の行が ${missing} つ残っている（名前が違う。行の「このファイルを選ぶ…」で付ける）` : ""));
     openRec();
   }
 });
