@@ -1,6 +1,6 @@
 # 駅通知todo の CI。
 # iOS 層（ekitsuuchi-todo/App）がコンパイルされるのはこのワークフローの ios-macos ジョブだけ。
-# 失敗したときはジョブログの末尾（"Summarise ..." ステップ）と、アーティファクトの xcodebuild.log を見る。
+# 結果はジョブログの "Summarise ..." ステップ（error と自分のコードの warning）と、失敗時のアーティファクト xcodebuild.log を見る。
 name: ekitsuuchi-ci
 
 on:
@@ -83,15 +83,19 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             2>&1 | tee xcodebuild.log
 
-      # 失敗時: ログが数千行でも原因が読めるよう、error/warning だけを末尾に出す。
-      - name: Summarise xcodebuild errors
-        if: failure()
+      # ログが数千行でも読めるよう、error/warning だけを末尾に出す。成功したときも警告は見たいので always。
+      - name: Summarise xcodebuild warnings and errors
+        if: always()
         run: |
           if [ -f xcodebuild.log ]; then
-            echo "===== error: / warning: (unique, first 150) ====="
-            grep -E "error:|warning:" xcodebuild.log | sort -u | head -150 || true
-            echo "===== last 40 lines ====="
-            tail -n 40 xcodebuild.log
+            echo "===== error: (unique) ====="
+            grep -E "error:" xcodebuild.log | sort -u | head -150 || true
+            echo "===== warning: (unique, first 150; project sources only) ====="
+            grep -E "ekitsuuchi-todo/(App|Sources)/.*warning:" xcodebuild.log | sort -u | head -150 || true
+            if [ "${{ job.status }}" != "success" ]; then
+              echo "===== last 40 lines ====="
+              tail -n 40 xcodebuild.log
+            fi
           else
             echo "xcodebuild.log was not produced (failure happened before the build step)."
           fi
