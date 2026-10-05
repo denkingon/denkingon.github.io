@@ -388,9 +388,23 @@ private struct ShopBranchRow: View {
     /// nil = 属性を消す。
     let onSetSize: (String?) -> Void
 
-    /// 徒歩の分数 = ceil(距離 / 80)（Tuning。D6）。
+    /// 通知文と同じ計算（D6）。分数の出どころを 1 つにするため Core のものを使う。
     private var walkingMinutes: Int {
-        max(1, Int((meters / Tuning.walkingMetersPerMinute).rounded(.up)))
+        NotificationComposer.walkingMinutes(meters: meters)
+    }
+
+    /// 行ごとに作ると描画のたびに高くつくので 1 つだけ持つ。
+    private static let fetchedFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.dateFormat = "M/d"
+        return f
+    }()
+
+    /// 営業時間をいつ取ったか。古い・未取得を見分けられるようにする。
+    private var fetchedText: String {
+        guard let fetched = branch.hoursFetchedAt else { return "営業時間 未取得" }
+        return "営業時間 取得 \(Self.fetchedFormatter.string(from: fetched))"
     }
 
     private var hoursText: String {
@@ -413,6 +427,9 @@ private struct ShopBranchRow: View {
                     .foregroundStyle(Color.secondary)
                 Text(hoursText)
                     .font(.caption)
+                    .foregroundStyle(Color.secondary)
+                Text(fetchedText)
+                    .font(.caption2)
                     .foregroundStyle(Color.secondary)
             }
             Spacer(minLength: 8)

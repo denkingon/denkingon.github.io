@@ -31,6 +31,8 @@ struct StationsView: View {
     @State private var draftRadius: Double?
     @State private var showAddSheet = false
     @State private var stationToDelete: Station?
+    /// 「ピンを動かす」中だけ地図のタップを受ける（常時だと地図の操作と競合するため）。
+    @State private var movingPin = false
 
     private var stations: [Station] { model.ledger.stations }
 
@@ -78,6 +80,11 @@ struct StationsView: View {
                 .onAppear { recenter() }
                 .onChange(of: selectedStation?.id) { _, _ in
                     draftRadius = nil
+                    movingPin = false
+                    recenter()
+                }
+                // ピンを動かした（座標が確定した）ら、新しい位置へ寄せる。
+                .onChange(of: selectedStation?.coordinate) { _, _ in
                     recenter()
                 }
                 // 半径が確定（台帳に反映）したら、下書きを捨てて円が収まるように寄せる。
@@ -148,7 +155,10 @@ struct StationsView: View {
         // D13: 未完了（または今日だけ無視）のタスクがあるか、実測モードのときだけ監視する。
         let wanted = ledger.settings.diagnosticMode
             || ledger.tasks.contains { $0.status == .pending || ($0.status == .ignored && $0.ignoredUntil != nil) }
-        if !wanted { return "未完了のタスクがないため、監視を止めています（電池のため）。" }
+        // 駅を登録しただけで何も起きない状態を「壊れている」と誤解されないよう、M1 の測り方まで案内する。
+        if !wanted {
+            return "未完了のタスクがないため、監視を止めています（電池のため）。実測（M1）なら 設定 > 実測モード をオン"
+        }
         return nil
     }
 
@@ -171,6 +181,9 @@ struct StationsView: View {
             }
             if !model.locationAuthorization.isAlways {
                 locationNotice
+            }
+            if let problem = model.monitoringProblem {
+                monitoringProblemNotice(problem)
             }
             if let report = model.lastReport {
                 Text(report)
@@ -212,6 +225,28 @@ struct StationsView: View {
         }
     }
 
+    /// 精度（Precise Location）オフや領域登録の失敗。原因は設定アプリでしか直せないことが多いので、そこへの道を付ける。
+    /// 位置情報の案内（locationNotice）がすでに「設定を開く」を出しているときは、ボタンを重ねない。
+    private func monitoringProblemNotice(_ problem: String) -> some View {
+        let authorization = model.locationAuthorization
+        let hasSettingsButton = !authorization.isAlways && authorization != .notDetermined
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .foregroundStyle(Color.secondary)
+            Text(problem)
+                .font(.footnote)
+                .foregroundStyle(Color.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            if !hasSettingsButton {
+                Button("設定を開く") { model.openSystemSettings() }
+                    .font(.footnote)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+        }
+    }
+
     // MARK: 地図と半径
 
     private func displayedRadius(_ station: Station) -> Double {
@@ -221,14 +256,18 @@ struct StationsView: View {
     private func mapPanel(_ station: Station) -> some View {
         let radius = displayedRadius(station)
         return VStack(spacing: 0) {
-            Map(position: $position) {
-                ForEach(stations) { s in
-                    Marker(s.name, coordinate: stationMapCoordinate(s.coordinate))
-                        .tint(s.id == station.id ? Color.primary : Color.secondary)
+            MapReader { proxy in
+                // タップのジェスチャーはピン移動中だけ付ける（ふだんのパン・ズームを邪魔しない）。
+                if movingPin {
+                    stationMap(station, radius: radius)
+                        .onTapGesture { point in
+                            if let c = proxy.convert(point, from: .local) {
+                                movePin(station, to: c)
+                            }
+                        }
+                } else {
+                    stationMap(station, radius: radius)
                 }
-                MapCircle(center: stationMapCoordinate(station.coordinate), radius: radius)
-                    .foregroundStyle(Color.primary.opacity(0.12))
-                    .stroke(Color.primary, lineWidth: 2)
             }
             // 地図の色を落として、画面全体を無彩色にそろえる。
             .grayscale(1)
@@ -252,6 +291,24 @@ struct StationsView: View {
                             .foregroundStyle(Color.secondary)
                     }
                     .accessibilityLabel("\(station.name)を削除")
+                }
+                // 座標は駅名検索で自動、ずれていたら地図で微調整（仕様 §2 駅）。
+                HStack(spacing: 8) {
+                    Button {
+                        movingPin.toggle()
+                    } label: {
+                        Label("ピンを動かす", systemImage: "mappin.and.ellipse")
+                            .font(.footnote)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityAddTraits(movingPin ? .isSelected : [])
+                    if movingPin {
+                        Text("地図をタップした位置に動かします")
+                            .font(.footnote)
+                            .foregroundStyle(Color.secondary)
+                    }
+                    Spacer(minLength: 0)
                 }
                 Slider(
                     value: Binding(
@@ -277,6 +334,27 @@ struct StationsView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
+    }
+
+    private func stationMap(_ station: Station, radius: Double) -> some View {
+        Map(position: $position) {
+            ForEach(stations) { s in
+                Marker(s.name, coordinate: stationMapCoordinate(s.coordinate))
+                    .tint(s.id == station.id ? Color.primary : Color.secondary)
+            }
+            MapCircle(center: stationMapCoordinate(station.coordinate), radius: radius)
+                .foregroundStyle(Color.primary.opacity(0.12))
+                .stroke(Color.primary, lineWidth: 2)
+        }
+    }
+
+    /// 確認は挟まず 1 タップで動かし、モードを閉じる（取り消したいときはもう一度動かす）。
+    private func movePin(_ station: Station, to coordinate: CLLocationCoordinate2D) {
+        movingPin = false
+        model.setStationCoordinate(
+            station.id,
+            Coordinate(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        )
     }
 
     /// 指を離したとき、下書きの半径を台帳へ書く。台帳の値が返ってきたら onChange が下書きを捨てる。

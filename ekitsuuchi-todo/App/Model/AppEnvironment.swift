@@ -28,6 +28,8 @@ struct LedgerOpenResult: Sendable {
 enum EnvironmentEvent: Sendable {
     case authorizationChanged
     case planChanged
+    /// 監視の問題（`monitoringProblem`）が変わった。
+    case monitoringChanged
 }
 
 /// UI を持たない組み立て役（composition root）。
@@ -131,6 +133,10 @@ final class AppEnvironment: @unchecked Sendable {
             // 許可が変わったら、計画が同じでも反映し直す（GeofenceTrigger は許可が出るまで領域の登録を見送っている）。
             self.replan(force: true)
             self.notify(.authorizationChanged)
+        }
+        trigger.onStatusChange = { [weak self] in
+            guard let self else { return }
+            self.notify(.monitoringChanged)
         }
 
         BackgroundRefresh.register { [weak self] in
@@ -336,6 +342,9 @@ final class AppEnvironment: @unchecked Sendable {
     // MARK: 権限の状態
 
     var locationAuthorization: LocationAuthorization { trigger.authorization }
+
+    /// 駅画面に出す、監視がうまくいっていない理由（問題が無ければ nil）。
+    var monitoringProblem: String? { trigger.monitoringProblem }
 
     func notificationStatus() async -> UNAuthorizationStatus {
         await poster.authorizationStatus()

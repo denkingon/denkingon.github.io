@@ -59,7 +59,11 @@ public struct ChainRegistrar: Sendable {
 
     /// チェーンを 1 つ登録して、有効な全駅の近くの支店と営業時間を取る。店画面の「再取得」も同じ入口。
     /// 名前の登録を最初にやる: 通信が失敗しても、駅が 0 件でも、タスクの「店」に使える名前になる（D11）。
-    public func register(chainName: String) async -> RegistrationReport {
+    ///
+    /// `refetchHours == true`（店画面の「再取得」）は、既存の支店の営業時間も取り直す。ボタンの名前どおりに動かすため。
+    /// 成功 → 営業時間と取得日時を更新。nil（Google に営業時間が無い）→ 古い営業時間を残し取得日時だけ進める（`HoursRefresher` と同じ）。
+    /// 失敗 → 古い営業時間も取得日時も残し、`hoursFailures` に載せる（週 1 更新で再試行される）。
+    public func register(chainName: String, refetchHours: Bool = false) async -> RegistrationReport {
         let trimmed = chainName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !ChainName.key(trimmed).isEmpty else {
             return RegistrationReport(chainName: trimmed, ledgerError: LedgerError.emptyField("chain").errorDescription)
@@ -71,7 +75,7 @@ public struct ChainRegistrar: Sendable {
         }
         let snapshot = await repository.snapshot()
         let registered = snapshot.registeredChains.first { ChainName.matches($0, trimmed) } ?? trimmed
-        return await run(chain: registered, onlyStation: nil)
+        return await run(chain: registered, onlyStation: nil, refetchHours: refetchHours)
     }
 
     /// 駅を足した（または有効にした）とき、その駅ぶんだけ、登録済みの全チェーンで店登録をやり直す。
@@ -83,7 +87,7 @@ public struct ChainRegistrar: Sendable {
         var reports: [RegistrationReport] = []
         for chain in snapshot.registeredChains {
             if Task.isCancelled { break }
-            reports.append(await run(chain: chain, onlyStation: id))
+            reports.append(await run(chain: chain, onlyStation: id, refetchHours: false))
         }
         return reports
     }
@@ -124,7 +128,7 @@ public struct ChainRegistrar: Sendable {
         var fetchedAt: Date?
     }
 
-    private func run(chain: String, onlyStation: UUID?) async -> RegistrationReport {
+    private func run(chain: String, onlyStation: UUID?, refetchHours: Bool) async -> RegistrationReport {
         var report = RegistrationReport(chainName: chain)
         let snapshot = await repository.snapshot()
         let targets = snapshot.stations.filter { $0.isEnabled && (onlyStation == nil || $0.id == onlyStation) }
@@ -192,16 +196,19 @@ public struct ChainRegistrar: Sendable {
             return report
         }
 
-        // 2. 新しい支店だけ営業時間を取る（既存の支店の営業時間は週 1 更新の仕事）
+        // 2. 新しい支店の営業時間を取る。既存の支店は、普段は週 1 更新の仕事。`refetchHours` のときだけここでも取り直す
+        //    （別チェーンとして既にある placeID は反映で奪わないので、取りに行かない）。
         let knownIDs = Set(snapshot.branches.map(\.id))
+        let ownIDs = Set(snapshot.branches.filter { ChainName.matches($0.chainName, chain) }.map(\.id))
         var fetched: [String: FetchedHours] = [:]
         var failedNames: [String] = []
-        for id in mergedOrder where !knownIDs.contains(id) {
+        for id in mergedOrder where !knownIDs.contains(id) || (refetchHours && ownIDs.contains(id)) {
             guard let m = mergedByID[id] else { continue }
             if Task.isCancelled {
                 cancelled = true
                 break
             }
+            let isNew = !knownIDs.contains(id)
             do {
                 let h = try await hours.openingHours(placeID: id)
                 // nil は「Google に営業時間が無い」という答え。取得済みとして扱い、毎回は聞き直さない。
@@ -211,8 +218,9 @@ public struct ChainRegistrar: Sendable {
                     cancelled = true
                     break
                 }
-                // 失敗は hoursFetchedAt = nil のまま残す = 週 1 更新で真っ先に再取得される。
-                fetched[id] = FetchedHours(hours: nil, fetchedAt: nil)
+                // 新しい支店の失敗は hoursFetchedAt = nil のまま残す = 週 1 更新で真っ先に再取得される。
+                // 既存の支店の失敗は何も書かない（古い営業時間と取得日時を残す）。
+                if isNew { fetched[id] = FetchedHours(hours: nil, fetchedAt: nil) }
                 failedNames.append(m.name)
             }
         }
@@ -270,6 +278,11 @@ public struct ChainRegistrar: Sendable {
                 let name = candidate.name.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !name.isEmpty { branch.name = candidate.name }
                 branch.coordinate = candidate.coordinate
+                // 取り直した既存の支店だけ（普段の再登録では `fetched` に入らない）。nil の答えは古い営業時間を残す。
+                if let refetched = fetched[branch.id], let at = refetched.fetchedAt {
+                    if let h = refetched.hours { branch.hours = h }
+                    branch.hoursFetchedAt = at
+                }
             }
             // 成功した駅の分だけ書き換える。返ってきたら更新、返らなければ外す。失敗した駅の分は触らない。
             branch.nearestStations = branch.nearestStations.compactMap { entry in

@@ -38,3 +38,25 @@ private final class BackgroundTaskHandle {
         identifier = .invalid
     }
 }
+
+/// 領域イベントを受けた瞬間から、判定・通知の配達まで（新しい位置を待つ間を含む）を覆う共有の借り時間。
+/// `withBackgroundTime` は AppEnvironment.handleTrigger が配達のあとで始めるので、その前の待ちはこちらで覆う。
+/// begin は何度呼んでも 1 本だけ借りる。メインでだけ使う。
+@MainActor
+final class BackgroundHold {
+    static let shared = BackgroundHold()
+    private let handle = BackgroundTaskHandle()
+    private var held = false
+
+    func begin(_ name: String) {
+        guard !held else { return }
+        held = true
+        handle.begin(name)
+    }
+
+    func end() {
+        guard held else { return }
+        held = false
+        handle.end()
+    }
+}

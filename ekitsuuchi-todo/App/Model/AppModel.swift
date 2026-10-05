@@ -48,6 +48,28 @@ private struct UncheckedSendable<Value>: @unchecked Sendable {
     let value: Value
 }
 
+// MARK: - 店登録の自動やり直し
+
+/// Places が落ちていた・キーが無かったせいで支店が 0 件のまま残ったチェーンを、あとで拾い直すための判断（純粋）。
+/// 本当に近くに支店が無いチェーンも対象になるが、`interval` に 1 回までなので通信は増えない。
+enum ChainRetryPolicy {
+    /// 同じチェーンを自動で試す最短の間隔。
+    static let interval: TimeInterval = 6 * 60 * 60
+
+    /// 自動で店登録をやり直すチェーン（台帳の登録順）。
+    /// - Parameter attempts: `ChainName.key` → 最後に自動で試した時刻。
+    static func chainsDue(ledger: Ledger, attempts: [String: Date], now: Date, placesConfigured: Bool) -> [String] {
+        // キーが無い・有効な駅が無いと、試しても何も取れない。
+        guard placesConfigured, ledger.stations.contains(where: \.isEnabled) else { return [] }
+        return ledger.registeredChains.filter { chain in
+            if ledger.branches.contains(where: { ChainName.matches($0.chainName, chain) }) { return false }
+            guard let last = attempts[ChainName.key(chain)] else { return true }
+            // 時計が戻されて「未来の試行」が残っても、そこで永久に止まらないようにする。
+            return last > now || now.timeIntervalSince(last) > interval
+        }
+    }
+}
+
 // MARK: - AppModel
 
 /// 画面のための台帳の写しと、画面からの操作口。
@@ -74,6 +96,8 @@ final class AppModel {
     private(set) var lastReport: String?
     /// いま監視している駅（`監視中 N / 20` の N）。
     private(set) var monitoringPlan: MonitoringPlan = .stopped
+    /// 駅の監視がうまくいっていない理由（正確な位置が切れている・領域の登録に失敗した等）。問題が無ければ nil。駅画面の注意書き用。
+    private(set) var monitoringProblem: String?
     /// 壊れた台帳ファイルを退避して空で始めた、という知らせ（常設の表示用）。
     private(set) var ledgerWarning: String?
     /// 台帳を開けなかった理由。これが入っているとき、変更操作は何も保存されない。
@@ -110,6 +134,9 @@ final class AppModel {
     /// 店登録を裏で走らせている最中のチェーン（`ChainName.key`）。同じ店の品目を続けて足したとき、
     /// 登録が重なって Places を何度も叩かないようにする。
     @ObservationIgnored private var registeringChainKeys = Set<String>()
+
+    /// 店登録を自動でやり直した最後の時刻（`ChainName.key` → Date）の保存先。
+    private static let chainAttemptsKey = "chainRegistrationAttempts"
 
     /// 同じ名前でこの距離（m）以内の駅は同じ駅とみなして二重登録しない（二重の領域は二重の通知になる）。
     private static let duplicateStationMeters: Double = 300
@@ -149,17 +176,23 @@ final class AppModel {
         }
 
         let stream = await services.repository.updates()
-        Task { await self.catchUpRefresh() }
+        Task {
+            await self.catchUpRefresh()
+            await self.retryEmptyChains()
+        }
         for await snapshot in stream {
             ledger = snapshot
             isReady = true
         }
     }
 
-    /// 前面に戻ったとき。設定アプリで変えた許可状態の読み直しと、営業時間の取りこぼし回収。
+    /// 前面に戻ったとき。設定アプリで変えた許可状態の読み直しと、営業時間・店登録の取りこぼし回収。
     func didBecomeActive() async {
         await refreshPermissionStates()
+        // 背景の更新（BGTask）で変わっていても、設定画面の「最終更新」が古いままにならないように読み直す。
+        lastHoursRefresh = env.lastHoursRefresh
         await catchUpRefresh()
+        await retryEmptyChains()
     }
 
     private func observeEnvironment() {
@@ -174,9 +207,12 @@ final class AppModel {
         switch event {
         case .authorizationChanged:
             locationAuthorization = env.locationAuthorization
+            monitoringProblem = env.monitoringProblem
             Task { await self.refreshNotificationStatus() }
         case .planChanged:
             monitoringPlan = env.currentPlan
+        case .monitoringChanged:
+            monitoringProblem = env.monitoringProblem
         }
     }
 
@@ -205,6 +241,50 @@ final class AppModel {
         if let report {
             lastReport = Self.describe(report)
         }
+    }
+
+    /// 支店が 0 件のまま残った登録済みチェーンを、`ChainRetryPolicy` の間隔で自動的に探し直す
+    /// （登録時に Places が落ちていた・キーが無かった場合の救済）。通信が重ならないよう 1 チェーンずつ順番に。
+    private func retryEmptyChains() async {
+        guard placesConfigured, let services = await env.services() else { return }
+        let snapshot = await services.repository.snapshot()
+        let due = ChainRetryPolicy.chainsDue(
+            ledger: snapshot, attempts: Self.loadChainAttempts(), now: Date(), placesConfigured: placesConfigured
+        ).filter { !registeringChainKeys.contains(ChainName.key($0)) }
+        guard !due.isEmpty else { return }
+        // ここまで await が無いので、確認と印付けの間に他の登録は割り込めない（前面復帰が重なっても二重に叩かない）。
+        let keys = Set(due.map(ChainName.key))
+        registeringChainKeys.formUnion(keys)
+        defer { registeringChainKeys.subtract(keys) }
+        let registrar = services.registrar
+        let reports = await withBusy("店を登録し直しています…") { () async -> [RegistrationReport] in
+            var reports: [RegistrationReport] = []
+            for chain in due {
+                if Task.isCancelled { break }
+                // 前のチェーンの通信中に、店を消された・別経路で支店が入った・駅が全部無効になった、かもしれない。
+                // `register` は名前を登録し直すので、確かめずに呼ぶと消した店が復活する。
+                let fresh = await services.repository.snapshot()
+                guard ChainRetryPolicy.chainsDue(
+                    ledger: fresh, attempts: Self.loadChainAttempts(), now: Date(), placesConfigured: true
+                ).contains(where: { ChainName.key($0) == ChainName.key(chain) }) else { continue }
+                // 試した時刻は通信の前に残す: 途中で落ちても、次の起動で同じ店を叩き続けない。
+                Self.recordChainAttempt(chain, at: Date())
+                reports.append(await registrar.register(chainName: chain))
+            }
+            return reports
+        }
+        guard !reports.isEmpty else { return }
+        lastReport = reports.map { Self.describe($0) }.joined(separator: " ／ ")
+    }
+
+    private static func loadChainAttempts() -> [String: Date] {
+        UserDefaults.standard.dictionary(forKey: chainAttemptsKey)?.compactMapValues { $0 as? Date } ?? [:]
+    }
+
+    private static func recordChainAttempt(_ chain: String, at date: Date) {
+        var attempts = loadChainAttempts()
+        attempts[ChainName.key(chain)] = date
+        UserDefaults.standard.set(attempts, forKey: chainAttemptsKey)
     }
 
     // MARK: タスク
@@ -321,21 +401,47 @@ final class AppModel {
         Task {
             guard let services = await self.repositoryServicesOrAlert() else { return }
             let repository = services.repository
+            let becameEnabled: Bool
             do {
-                try await repository.mutate { (ledger: inout Ledger) -> Void in
-                    guard let i = ledger.stations.firstIndex(where: { $0.id == id }) else { return }
+                becameEnabled = try await repository.mutate { (ledger: inout Ledger) -> Bool in
+                    guard let i = ledger.stations.firstIndex(where: { $0.id == id }) else { return false }
+                    let was = ledger.stations[i].isEnabled
                     ledger.stations[i].isEnabled = enabled
+                    return enabled && !was
                 }
             } catch {
                 self.alert = AppAlert(title: "有効・無効を変えられませんでした", message: error.localizedDescription)
                 return
             }
-            // 無効の間に足した駅は支店を探していない。有効にしたとき、支店がまだ 1 つも無ければ探す。
-            guard enabled else { return }
+            // 無効の間は店登録がこの駅を飛ばすので、その間に登録したチェーンはこの駅の近くを探せていない。
+            // 支店が 1 つでもあるかで判断せず、有効にするたびに全チェーンを探し直す。
+            guard becameEnabled else { return }
             let snapshot = await repository.snapshot()
-            guard let station = snapshot.station(id: id),
-                  !snapshot.registeredChains.isEmpty,
-                  !snapshot.branches.contains(where: { $0.distance(to: id) != nil }) else { return }
+            guard let station = snapshot.station(id: id), !snapshot.registeredChains.isEmpty else { return }
+            await self.searchBranches(forNewStation: station, services: services)
+        }
+    }
+
+    /// 地図で微調整した駅の座標（§2: 座標は駅名検索で自動、地図で微調整）。
+    /// 支店までの距離（徒歩分・近い順）は駅座標から計算して台帳に持っているので、
+    /// 動かしたあと、その駅だけ全チェーンで探し直して取り直す。
+    func setStationCoordinate(_ id: UUID, _ coordinate: Coordinate) {
+        // 範囲外・NaN は台帳（JSON）と領域登録を壊すので無視する（NaN は範囲の比較が偽になる）。
+        guard (-90.0...90.0).contains(coordinate.latitude), (-180.0...180.0).contains(coordinate.longitude) else { return }
+        Task {
+            guard let services = await self.repositoryServicesOrAlert() else { return }
+            let repository = services.repository
+            do {
+                try await repository.mutate { (ledger: inout Ledger) -> Void in
+                    guard let i = ledger.stations.firstIndex(where: { $0.id == id }) else { return }
+                    ledger.stations[i].coordinate = coordinate
+                }
+            } catch {
+                self.alert = AppAlert(title: "駅の位置を変えられませんでした", message: error.localizedDescription)
+                return
+            }
+            let snapshot = await repository.snapshot()
+            guard let station = snapshot.station(id: id), station.isEnabled, !snapshot.registeredChains.isEmpty else { return }
             await self.searchBranches(forNewStation: station, services: services)
         }
     }
@@ -379,15 +485,16 @@ final class AppModel {
     }
 
     /// 店画面の「再取得」。
+    /// ボタンの名前どおり、既存の支店の営業時間も取り直す（`refetchHours`）。
     func reregisterChain(_ name: String) async {
-        await registerChain(name)
+        await registerChain(name, refetchHours: true)
     }
 
-    private func registerChain(_ name: String) async {
+    private func registerChain(_ name: String, refetchHours: Bool = false) async {
         guard let services = await repositoryServicesOrAlert() else { return }
         let registrar = services.registrar
         let report = await withBusy("\(name) の支店を探しています…") {
-            await registrar.register(chainName: name)
+            await registrar.register(chainName: name, refetchHours: refetchHours)
         }
         lastReport = Self.describe(report)
     }
@@ -518,6 +625,13 @@ final class AppModel {
 
     /// 設定を書き換える。`change` は台帳の actor の中で、その時点の設定に対して 1 回だけ実行される。
     func updateSettings(_ change: @escaping (inout Settings) -> Void) {
+        // 実測モードを入れる人は、通知の許可がまだならここで聞く。聞かないと、入域の通知が失敗（failedToPost）に
+        // なっていたことに数日後に履歴で気づくことになる（M1 の測定が無駄になる）。
+        var next = ledger.settings
+        change(&next)
+        if next.diagnosticMode && !ledger.settings.diagnosticMode {
+            askNotificationIfNeeded()
+        }
         let box = UncheckedSendable(value: change)
         mutateLedger("設定を保存できませんでした") { repository in
             try await repository.updateSettings(box.value)
@@ -551,6 +665,7 @@ final class AppModel {
 
     func refreshPermissionStates() async {
         locationAuthorization = env.locationAuthorization
+        monitoringProblem = env.monitoringProblem
         await refreshNotificationStatus()
     }
 
