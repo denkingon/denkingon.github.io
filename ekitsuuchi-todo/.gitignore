@@ -1,0 +1,8 @@
+# SwiftPM / Xcode
+.build/
+.swiftpm/
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+# API key lives here, never in git (see Config/Secrets.xcconfig.example)
+Config/Secrets.xcconfig
