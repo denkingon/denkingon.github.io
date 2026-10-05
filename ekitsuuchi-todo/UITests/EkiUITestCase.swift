@@ -107,6 +107,8 @@ class EkiUITestCase: XCTestCase {
                 screenshot.name = "failure-final-screen"
                 screenshot.lifetime = .keepAlways
                 self.add(screenshot)
+                // ログにも出す: 成果物をダウンロードできなくても、CI のジョブログだけでラベルの食い違いを直せる。
+                print("=== UI HIERARCHY (\(self.name)) ===\n\(app.debugDescription)\n=== END UI HIERARCHY ===")
                 let tree = XCTAttachment(string: app.debugDescription)
                 tree.name = "failure-ui-hierarchy"
                 tree.lifetime = .keepAlways

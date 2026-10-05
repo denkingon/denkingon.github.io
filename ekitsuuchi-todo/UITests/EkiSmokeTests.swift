@@ -403,11 +403,21 @@ extension EkiSmokeTests {
         let combined = NSCompoundPredicate(andPredicateWithSubpredicates: [titlePrefixes, valueSuffixes])
         // セルとして見えない場合の保険: 見出しと同じ文字の「通知」は 2 つ（見出し + 行）以上あることを求める。
         let minimumTitles = title == "通知" ? 2 : 1
-        return waitUntil(timeout: Self.uiTimeout) {
+        let present: () -> Bool = {
             self.app.cells.containing(titleExact).containing(valueExact).firstMatch.exists
                 || self.app.cells.matching(combined).firstMatch.exists
                 || (self.app.staticTexts.matching(titleExact).count >= minimumTitles
                     && self.app.staticTexts.matching(valueExact).firstMatch.exists)
         }
+        if waitUntil(timeout: 5, present) { return true }
+        // 権限の行は設定画面の下の方にある。SwiftUI の List は画面外の行を作らないので、スクロールして探す。
+        var scrolled = 0
+        defer { for _ in 0..<scrolled { app.swipeDown() } }   // 上のスイッチを触る次の手順のために戻す
+        for _ in 0..<8 {
+            app.swipeUp()
+            scrolled += 1
+            if waitUntil(timeout: 2, present) { return true }
+        }
+        return false
     }
 }
