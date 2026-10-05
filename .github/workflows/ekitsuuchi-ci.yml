@@ -1,0 +1,105 @@
+# 駅通知todo の CI。
+# iOS 層（ekitsuuchi-todo/App）がコンパイルされるのはこのワークフローの ios-macos ジョブだけ。
+# 失敗したときはジョブログの末尾（"Summarise ..." ステップ）と、アーティファクトの xcodebuild.log を見る。
+name: ekitsuuchi-ci
+
+on:
+  push:
+    paths:
+      - 'ekitsuuchi-todo/**'
+      - '.github/workflows/ekitsuuchi-ci.yml'
+  pull_request:
+    paths:
+      - 'ekitsuuchi-todo/**'
+      - '.github/workflows/ekitsuuchi-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ekitsuuchi-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  core-linux:
+    name: Core (Linux, swift test)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container: swift:6.0-noble
+    defaults:
+      run:
+        shell: bash
+        working-directory: ekitsuuchi-todo
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: swift test
+        run: swift test
+
+  ios-macos:
+    name: iOS app (macOS, xcodebuild)
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: ekitsuuchi-todo
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          xcodebuild -showsdks | grep -i simulator || true
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+          xcodegen --version
+
+      # Core は macOS でも通す（Foundation の実装差を拾うため）。
+      - name: swift test (Core on macOS)
+        run: swift test
+
+      - name: Generate Xcode project
+        run: |
+          xcodegen generate
+          echo "--- generated Info.plist ---"
+          cat App/Resources/Info.plist
+
+      # 鍵なし・署名なしでビルドだけ通す。全ログを xcodebuild.log に残す。
+      - name: xcodebuild build (iOS Simulator)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project EkiTsuuchi.xcodeproj \
+            -scheme EkiTsuuchi \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            2>&1 | tee xcodebuild.log
+
+      # 失敗時: ログが数千行でも原因が読めるよう、error/warning だけを末尾に出す。
+      - name: Summarise xcodebuild errors
+        if: failure()
+        run: |
+          if [ -f xcodebuild.log ]; then
+            echo "===== error: / warning: (unique, first 150) ====="
+            grep -E "error:|warning:" xcodebuild.log | sort -u | head -150 || true
+            echo "===== last 40 lines ====="
+            tail -n 40 xcodebuild.log
+          else
+            echo "xcodebuild.log was not produced (failure happened before the build step)."
+          fi
+
+      - name: Upload xcodebuild.log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: ekitsuuchi-todo/xcodebuild.log
+          if-no-files-found: ignore

@@ -1,0 +1,9 @@
+// 全構成で共有する設定。
+// 既定値を先に置き、そのあと Secrets を読む: 後に書いたものが勝つので、Secrets があれば上書きされる。
+// 注意: xcconfig は「//」以降をコメントとして切る。URL を値にする設定をここへ足すときは $() で割ること。
+PLACES_API_KEY =
+DEVELOPMENT_TEAM =
+
+// 「?」付きなので Secrets.xcconfig が無くても読み込みは失敗しない（CI は鍵なしでビルドする）。
+// パスはこのファイルからの相対。
+#include? "Secrets.xcconfig"

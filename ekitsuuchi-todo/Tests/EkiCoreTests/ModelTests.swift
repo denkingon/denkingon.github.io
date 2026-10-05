@@ -16,6 +16,10 @@ final class ModelTests: XCTestCase {
         XCTAssertNil(CalendarDay(isoString: "2026-02-30"))
         XCTAssertNil(CalendarDay(isoString: "2026-9-14"))
         XCTAssertNil(CalendarDay(isoString: "yesterday"))
+        XCTAssertNil(CalendarDay(isoString: "+026-09-14"), "符号付きは日付ではない")
+        XCTAssertNil(CalendarDay(isoString: "2026-+9-14"))
+        XCTAssertNil(CalendarDay(isoString: "2026-09-+4"))
+        XCTAssertNil(CalendarDay(isoString: "２０２６-09-14"), "全角数字は受けない")
         XCTAssertEqual(CalendarDay(year: 2026, month: 12, day: 31).addingDays(1), CalendarDay(year: 2027, month: 1, day: 1))
         XCTAssertEqual(CalendarDay(year: 2026, month: 3, day: 1).addingDays(-1), CalendarDay(year: 2026, month: 2, day: 28))
         // 2026-10-05 is a Monday.

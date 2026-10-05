@@ -1,0 +1,4 @@
+#include "Base.xcconfig"
+
+// Release 固有の設定。project.yml 側と同じキーは書かない（project.yml が勝つ）。
+EKI_BUILD_FLAVOR = release

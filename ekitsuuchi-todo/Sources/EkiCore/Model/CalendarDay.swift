@@ -24,8 +24,10 @@ public struct CalendarDay: Hashable, Comparable, Sendable, CustomStringConvertib
     /// Strict "yyyy-MM-dd". Returns nil for anything else, including impossible dates like 2026-02-30.
     public init?(isoString: String) {
         let parts = isoString.split(separator: "-", omittingEmptySubsequences: false)
+        // Int("+026") や Int("-1") が通ってしまうので、数字だけの文字列に限る。
         guard parts.count == 3,
               parts[0].count == 4, parts[1].count == 2, parts[2].count == 2,
+              parts.allSatisfy({ $0.unicodeScalars.allSatisfy { ("0"..."9").contains($0) } }),
               let y = Int(parts[0]), let m = Int(parts[1]), let d = Int(parts[2]) else { return nil }
         let candidate = CalendarDay(year: y, month: m, day: d)
         guard candidate.isValid else { return nil }
