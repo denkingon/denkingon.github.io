@@ -38,6 +38,44 @@ jobs:
       - name: swift test
         run: swift test
 
+  # 位置情報の理由文は App Store 審査のテキストとアプリ内の表示で一字一句同じにする（計画書 §2）。
+  # Info.plist の文（project.yml）と PermissionCopy.swift がずれたら落とす。
+  consistency:
+    name: Permission copy matches Info.plist
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare project.yml and PermissionCopy.swift
+        run: |
+          python3 - <<'PY'
+          import re, sys
+          yml = open('ekitsuuchi-todo/project.yml', encoding='utf-8').read()
+          swift = open('ekitsuuchi-todo/App/Model/PermissionCopy.swift', encoding='utf-8').read()
+          def plist(key):
+              m = re.search(r'^\s*' + key + r':\s*(.+?)\s*$', yml, re.M)
+              return m.group(1) if m else None
+          def swiftstr(name):
+              m = re.search(r'static let ' + name + r'\s*=\s*"([^"\n]*)"', swift)
+              return m.group(1) if m else None
+          pairs = [
+              ('NSLocationAlwaysAndWhenInUseUsageDescription', 'locationReason'),
+              ('NSLocationWhenInUseUsageDescription', 'whenInUseReason'),
+          ]
+          bad = 0
+          for key, name in pairs:
+              a, b = plist(key), swiftstr(name)
+              if a is None or b is None:
+                  print(f'MISSING: {key} in project.yml={a is not None}, PermissionCopy.{name}={b is not None}')
+                  bad += 1
+              elif a != b:
+                  print(f'MISMATCH {key} vs PermissionCopy.{name}:\n  project.yml: {a}\n  swift      : {b}')
+                  bad += 1
+              else:
+                  print(f'ok: {key} == PermissionCopy.{name}')
+          sys.exit(1 if bad else 0)
+          PY
+
   ios-macos:
     name: iOS app (macOS, xcodebuild + UI tests)
     runs-on: macos-15

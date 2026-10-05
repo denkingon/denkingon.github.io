@@ -3,6 +3,7 @@
 name: EkiTsuuchi
 
 options:
+  developmentLanguage: ja   # 文言は全部日本語。英語のままだと検索欄の「キャンセル」などシステム部品が英語で出る
   bundleIdPrefix: dev.denkingon
   deploymentTarget:
     iOS: "17.0"
@@ -51,6 +52,9 @@ targets:
       path: App/Resources/Info.plist
       properties:
         CFBundleDisplayName: 駅通知todo
+        CFBundleLocalizations:
+          - ja
+          - en
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
@@ -67,9 +71,10 @@ targets:
         # Config/Secrets.xcconfig の PLACES_API_KEY が入る。無ければ空（AppSecrets が "" を返す）。
         PlacesAPIKey: $(PLACES_API_KEY)
         # 位置情報の理由文。計画書 §2: App Store 審査の理由文はアプリ内（設定画面）の文言と一致させる。
-        # 設定画面はこの一文をそのまま使うこと（下の2キーも同じ文）:
+        # 設定画面はこの一文をそのまま使うこと（Always のキー。When-In-Use のキーは PermissionCopy.whenInUseReason と同じ文）。
+        # 一致は CI の consistency ジョブが調べる:
         #   使う駅に入った瞬間をバックグラウンドでも検知し、その駅の近くで開いている店のタスクをお知らせするために、位置情報を「常に」使います。
-        NSLocationWhenInUseUsageDescription: 使う駅に入った瞬間をバックグラウンドでも検知し、その駅の近くで開いている店のタスクをお知らせするために、位置情報を「常に」使います。
+        NSLocationWhenInUseUsageDescription: 使う駅に入ったことを検知し、その駅の近くで開いている店のタスクをお知らせするために、位置情報を使います。アプリを閉じていても検知するには、このあと「常に許可」への変更が必要です。
         NSLocationAlwaysAndWhenInUseUsageDescription: 使う駅に入った瞬間をバックグラウンドでも検知し、その駅の近くで開いている店のタスクをお知らせするために、位置情報を「常に」使います。
 
   # UI テスト（XCUITest）。CI の macOS ジョブが Simulator で実際にアプリを起動して触る（.github/workflows/ekitsuuchi-ci.yml）。
