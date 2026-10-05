@@ -1,6 +1,8 @@
+import BackgroundTasks
 import EkiCore
 import Foundation
 import UserNotifications
+import os
 
 /// 台帳を開いたあとに使える部品一式（台帳が開けないと作れない）。
 struct LedgerServices: Sendable {
@@ -17,6 +19,9 @@ struct LedgerOpenResult: Sendable {
     var warning: String?
     /// 台帳を開けなかった理由（新しい版のファイル・読み取り失敗など）。
     var error: String?
+    /// 時間をおけば開けるかもしれない失敗（端末の初回アンロック前でファイルを読めない、など）。
+    /// 新しい版のファイルのように、待っても変わらない失敗は false。
+    var retryable = false
 }
 
 /// AppModel（画面側）が環境の変化を知るための合図。中身は `AppEnvironment` から読み直す。
@@ -132,7 +137,13 @@ final class AppEnvironment: @unchecked Sendable {
             guard let self else { return false }
             return await self.refreshHoursIfDue()
         }
-        BackgroundRefresh.schedule()
+        // 予約済みならそのまま残す。起動のたびに予約し直すと「24 時間後以降」が毎回先へ延びて、
+        // 毎日起動される（入域のバックグラウンド起動を含む）アプリでは更新が一度も走らなくなる。
+        BGTaskScheduler.shared.getPendingTaskRequests { requests in
+            if !requests.contains(where: { $0.identifier == BackgroundRefresh.taskID }) {
+                BackgroundRefresh.schedule()
+            }
+        }
 
         _ = ensureOpenTask()
         startPlanning()
@@ -150,8 +161,17 @@ final class AppEnvironment: @unchecked Sendable {
     }
 
     /// 台帳を開く（開けるまで待つ）。開けなかったときは `services == nil`。
+    /// 一時的な失敗（`retryable`）は覚えておかない。次に呼ばれたとき開き直す
+    /// （端末の初回アンロック前に領域イベントで起動されると、ファイルを読めないことがある）。
     func openResult() async -> LedgerOpenResult {
-        await ensureOpenTask().value
+        let task = ensureOpenTask()
+        let result = await task.value
+        if result.services == nil && result.retryable {
+            state.withValue { (s: inout State) -> Void in
+                if s.openTask == task { s.openTask = nil }
+            }
+        }
+        return result
     }
 
     func services() async -> LedgerServices? {
@@ -166,6 +186,7 @@ final class AppEnvironment: @unchecked Sendable {
         let store = JSONFileLedgerStore(url: ledgerURL)
         var warning: String?
         var failure: String?
+        var retryable = false
         var opened: LedgerRepository?
 
         do {
@@ -178,22 +199,28 @@ final class AppEnvironment: @unchecked Sendable {
                 opened = try await LedgerRepository.open(store: store)
             } catch {
                 failure = error.localizedDescription
+                retryable = true
             }
+        } catch let error as LedgerStoreError {
+            // 新しい版のファイルなど。待っても変わらない。
+            failure = error.localizedDescription
         } catch {
             failure = error.localizedDescription
+            retryable = true
         }
 
         guard let repository = opened else {
             let message = failure ?? "台帳を開けませんでした。"
             AppLog.ledger.error("台帳を開けない: \(message, privacy: .public)")
-            return LedgerOpenResult(services: nil, warning: warning, error: message)
+            return LedgerOpenResult(services: nil, warning: warning, error: message, retryable: retryable)
         }
 
         let services = LedgerServices(
             repository: repository,
             registrar: ChainRegistrar(repository: repository, search: places, hours: places),
             refresher: HoursRefresher(repository: repository, hours: places),
-            entryHandler: StationEntryHandler(repository: repository, poster: poster, timeZone: { TimeZone.current })
+            // 端末のタイムゾーンは起動中に変わりうる（旅行）。値の固定を避けて、読むたびに今の設定を見る（D14）。
+            entryHandler: StationEntryHandler(repository: repository, poster: poster, timeZone: { TimeZone.autoupdatingCurrent })
         )
         return LedgerOpenResult(services: services, warning: warning, error: nil)
     }
@@ -203,7 +230,7 @@ final class AppEnvironment: @unchecked Sendable {
     /// 入域の経路。台帳が開けなければログだけ残して戻る（落とさない）。
     /// バックグラウンド起動中に判定と通知の投稿が終わる前に一時停止されないよう、時間を借りる。
     func handleTrigger(_ event: TriggerEvent) async {
-        guard let services = await services() else {
+        guard let services = await self.services() else {
             AppLog.location.error("入域を処理できない（台帳が開けない）: \(event.stationID.uuidString, privacy: .public)")
             return
         }
@@ -221,7 +248,7 @@ final class AppEnvironment: @unchecked Sendable {
 
     func perform(_ action: NotificationAction) async {
         if case .open = action { return }
-        guard let repository = await repository() else {
+        guard let repository = await self.repository() else {
             AppLog.ledger.error("通知の操作を処理できない（台帳が開けない）")
             return
         }
@@ -231,7 +258,7 @@ final class AppEnvironment: @unchecked Sendable {
                 try await completeFromNotification(taskIDs, in: repository)
             case .ignoreToday(let taskIDs):
                 // D2: 今日だけ止める。端末のタイムゾーンの翌日 0 時に未完了へ戻る。
-                try await repository.ignore(taskIDs: taskIDs, untilTomorrow: true, now: Date(), timeZone: TimeZone.current)
+                try await repository.ignore(taskIDs: taskIDs, untilTomorrow: true, now: Date(), timeZone: TimeZone.autoupdatingCurrent)
             case .open:
                 break
             }
@@ -253,10 +280,19 @@ final class AppEnvironment: @unchecked Sendable {
     /// 台帳の変化を購読して、監視計画を作り直し続ける。UI が無くても動く。
     private func startPlanning() {
         let task = Task { [weak self] in
-            guard let self, let repository = await self.repository() else { return }
-            let stream = await repository.updates()
-            for await ledger in stream {
-                self.replan(ledger: ledger)
+            guard let self else { return }
+            while !Task.isCancelled {
+                let opened = await self.openResult()
+                if let repository = opened.services?.repository {
+                    let stream = await repository.updates()
+                    for await ledger in stream {
+                        self.replan(ledger: ledger)
+                    }
+                    return
+                }
+                // 台帳を開けない間は、領域監視は前回のまま（iOS が覚えている）。一時的な失敗なら開き直す。
+                guard opened.retryable else { return }
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
             }
         }
         state.withValue { $0.planningTask = task }
@@ -305,8 +341,11 @@ final class AppEnvironment: @unchecked Sendable {
 
     // MARK: 営業時間の週 1 更新
 
-    var lastHoursRefresh: Date? {
-        UserDefaults.standard.object(forKey: AppEnvironment.lastHoursRefreshKey) as? Date
+    var lastHoursRefresh: Date? { AppEnvironment.storedLastHoursRefresh() }
+
+    /// インスタンスを作らずに読める（AppModel の初期値用。`shared` に触れずに済ませる）。
+    static func storedLastHoursRefresh() -> Date? {
+        UserDefaults.standard.object(forKey: lastHoursRefreshKey) as? Date
     }
 
     func recordHoursRefresh(_ date: Date) {
@@ -315,7 +354,7 @@ final class AppEnvironment: @unchecked Sendable {
 
     /// 更新が要る支店があるか（通信しない）。キー未設定なら false（取りに行けない）。
     func isHoursRefreshDue() async -> Bool {
-        guard placesConfigured, let services = await services() else { return false }
+        guard placesConfigured, let services = await self.services() else { return false }
         return await services.refresher.isDue()
     }
 
@@ -328,7 +367,7 @@ final class AppEnvironment: @unchecked Sendable {
 
     /// 実行したときだけレポートを返す。nil = キー未設定・台帳なし・更新不要・他で実行中。
     func refreshHoursIfDueReport() async -> RefreshReport? {
-        guard placesConfigured, let services = await services() else { return nil }
+        guard placesConfigured, let services = await self.services() else { return nil }
         // BGTask とフォアグラウンドが同時に走っても、Places を二重に叩かない。
         let acquired = state.withValue { s -> Bool in
             if s.refreshingHours { return false }

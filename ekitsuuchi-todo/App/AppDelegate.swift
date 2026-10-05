@@ -1,4 +1,5 @@
 import UIKit
+import os
 
 /// 起動の入口。画面（SwiftUI の Scene）より先に、ここで全部の受け口を揃える。
 ///

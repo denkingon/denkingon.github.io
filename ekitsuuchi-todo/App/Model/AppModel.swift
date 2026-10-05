@@ -107,6 +107,9 @@ final class AppModel {
     @ObservationIgnored private var busyEntries: [BusyEntry] = []
     @ObservationIgnored private var reportedLedgerOpen = false
     @ObservationIgnored private var lastCatchUp: Date?
+    /// 店登録を裏で走らせている最中のチェーン（`ChainName.key`）。同じ店の品目を続けて足したとき、
+    /// 登録が重なって Places を何度も叩かないようにする。
+    @ObservationIgnored private var registeringChainKeys = Set<String>()
 
     /// 同じ名前でこの距離（m）以内の駅は同じ駅とみなして二重登録しない（二重の領域は二重の通知になる）。
     private static let duplicateStationMeters: Double = 300
@@ -114,6 +117,8 @@ final class AppModel {
     private static let maxRejectedReasons = 5
     /// 営業時間の取りこぼし回収を試みる最短の間隔。失敗が続いても、前面に戻るたびに通信しない。
     private static let catchUpInterval: TimeInterval = 60 * 60
+    /// 台帳を一時的に開けないときの、開き直しの間隔。
+    private static let reopenIntervalNanoseconds: UInt64 = 15_000_000_000
 
     /// AppEnvironment には触らない（App 構造体の初期化が AppDelegate より先に走っても、起動の順序を崩さないため）。
     init() {}
@@ -128,8 +133,16 @@ final class AppModel {
         monitoringPlan = env.currentPlan
         await refreshPermissionStates()
 
-        let opened = await env.openResult()
+        var opened = await env.openResult()
         reportLedgerOpen(opened)
+        // 一時的に開けないとき（端末の初回アンロック前に起動された、など）は間を置いて開き直す。
+        while opened.services == nil && opened.retryable {
+            isReady = true
+            try? await Task.sleep(nanoseconds: Self.reopenIntervalNanoseconds)
+            if Task.isCancelled { return }
+            opened = await env.openResult()
+            reportLedgerOpen(opened)
+        }
         guard let services = opened.services else {
             isReady = true
             return
@@ -225,7 +238,7 @@ final class AppModel {
     /// `untilTomorrow == false` が台帳画面の「無視」（戻すまで無期限）、true が「今日だけ」（明日 0 時に未完了へ戻る。D2）。
     func ignore(_ ids: [UUID], untilTomorrow: Bool) {
         mutateLedger("無視にできませんでした") { repository in
-            try await repository.ignore(taskIDs: ids, untilTomorrow: untilTomorrow, now: Date(), timeZone: TimeZone.current)
+            try await repository.ignore(taskIDs: ids, untilTomorrow: untilTomorrow, now: Date(), timeZone: TimeZone.autoupdatingCurrent)
         }
     }
 
@@ -253,22 +266,27 @@ final class AppModel {
         guard let services = await repositoryServicesOrAlert() else { return }
         let repository = services.repository
 
-        let existing = await repository.snapshot().stations
-        let candidateKey = ChainName.key(candidate.name)
-        let alreadyThere = existing.contains { station in
-            ChainName.key(station.name) == candidateKey
-                && station.coordinate.distance(to: candidate.coordinate) < Self.duplicateStationMeters
-        }
-        if alreadyThere {
-            alert = AppAlert(title: "登録済みの駅です", message: "\(candidate.name) はすでに登録されています。")
-            return
-        }
-
         let station = Station(name: candidate.name, coordinate: candidate.coordinate)
+        let candidateKey = ChainName.key(candidate.name)
+        let minimumMeters = Self.duplicateStationMeters
+        // 重複の確認と追加は 1 回の mutate で行う（結果の行を続けて 2 回タップしても二重に入らない）。
+        let inserted: Bool
         do {
-            try await repository.upsertStation(station)
+            inserted = try await repository.mutate { (ledger: inout Ledger) -> Bool in
+                let alreadyThere = ledger.stations.contains { existing in
+                    ChainName.key(existing.name) == candidateKey
+                        && existing.coordinate.distance(to: candidate.coordinate) < minimumMeters
+                }
+                if alreadyThere { return false }
+                ledger.stations.append(station)
+                return true
+            }
         } catch {
             alert = AppAlert(title: "駅を追加できませんでした", message: error.localizedDescription)
+            return
+        }
+        guard inserted else {
+            alert = AppAlert(title: "登録済みの駅です", message: "\(candidate.name) はすでに登録されています。")
             return
         }
 
@@ -277,7 +295,8 @@ final class AppModel {
             requestLocationAuthorization()
         }
 
-        guard !(await repository.snapshot().registeredChains.isEmpty) else {
+        let snapshot = await repository.snapshot()
+        if snapshot.registeredChains.isEmpty {
             lastReport = "\(station.name) を追加しました。店を登録すると、この駅の近くの支店を探します。"
             return
         }
@@ -559,9 +578,21 @@ final class AppModel {
         guard !chains.isEmpty else { return }
         Task {
             guard let services = await self.env.services() else { return }
+            // 登録済みのチェーンでバナーがちらつかないよう、未登録のものがあるときだけ busy にする。
+            let snapshot = await services.repository.snapshot()
+            let registered = Set(snapshot.registeredChains.map(ChainName.key))
+            let unregistered = chains.filter {
+                let key = ChainName.key($0)
+                return !registered.contains(key) && !self.registeringChainKeys.contains(key)
+            }
+            guard !unregistered.isEmpty else { return }
+            // ここから先に await が来るまで MainActor を離れないので、確認と印付けの間に他の登録は割り込めない。
+            let keys = Set(unregistered.map(ChainName.key))
+            self.registeringChainKeys.formUnion(keys)
+            defer { self.registeringChainKeys.subtract(keys) }
             let registrar = services.registrar
             let reports = await self.withBusy("店を登録しています…") {
-                await registrar.ensureRegistered(chains: chains)
+                await registrar.ensureRegistered(chains: unregistered)
             }
             guard !reports.isEmpty else { return }
             self.lastReport = reports.map { Self.describe($0) }.joined(separator: " ／ ")

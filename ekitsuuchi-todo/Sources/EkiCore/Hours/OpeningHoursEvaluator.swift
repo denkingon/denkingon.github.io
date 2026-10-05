@@ -42,6 +42,36 @@ private struct OpenRun {
     var end: Date   // 排他
 }
 
+// 店画面の「今日の営業時間」（OpeningHoursSummary.swift）と評価が同じ規則で枠を数えるための共有部分。
+extension OpeningHours {
+    /// 同じ日付の特別日が複数あっても取りこぼさないよう枠を併合する。
+    func specialPeriodsByDay() -> [CalendarDay: [DayPeriod]] {
+        var specialByDay: [CalendarDay: [DayPeriod]] = [:]
+        for special in specialDays {
+            specialByDay[special.date, default: []].append(contentsOf: special.periods)
+        }
+        return specialByDay
+    }
+
+    /// `day` に「開く」枠（開店の分, 閉店の分）。閉店は開店日の 0 時からの分で、1440 超は翌日以降。
+    /// 特別日: その日に開く枠だけを使う（空なら終日休み。週枠のその日開店分は無視）。
+    /// 不正な枠は捨てる（落とさない）。開店日に属する、という規則はここだけに置く。
+    func openingPeriods(on day: CalendarDay, specialByDay: [CalendarDay: [DayPeriod]]) -> [(openMinute: Int, closeMinute: Int)] {
+        if let periods = specialByDay[day] {
+            return periods.compactMap { p in
+                guard p.openMinute >= 0, p.openMinute < 1440,
+                      p.closeMinute > p.openMinute, p.closeMinute <= 2880 else { return nil }
+                return (p.openMinute, p.closeMinute)
+            }
+        }
+        let weekday = day.weekdayIndex
+        return weekly.compactMap { p in
+            guard p.openDay == weekday, let length = Self.closeOffsetMinutes(p) else { return nil }
+            return (p.openMinute, p.openMinute + length)
+        }
+    }
+}
+
 private extension OpeningHours {
     /// 窓内の開店日ごとの区間を絶対時刻にして、重なり・接触をマージして開始順に返す。
     /// 24:00 閉店 + 0:00 開店は 1 本の連続営業になる（closesAt はマージ後の終端）。
@@ -50,29 +80,13 @@ private extension OpeningHours {
         calendar.timeZone = timeZone   // 日付→時刻は暦の成分から作る（86400 秒の足し算は DST でずれる）
 
         let today = CalendarDay(date: now, timeZone: timeZone)
-
-        // 同じ日付の特別日が複数あっても取りこぼさないよう枠を併合する。
-        var specialByDay: [CalendarDay: [DayPeriod]] = [:]
-        for special in specialDays {
-            specialByDay[special.date, default: []].append(contentsOf: special.periods)
-        }
+        let specialByDay = specialPeriodsByDay()
 
         var raw: [OpenRun] = []
         for offset in -Self.lookBackDays...Self.lookAheadDays {
             let day = today.addingDays(offset)
-            if let periods = specialByDay[day] {
-                // 特別日: その日に開く枠だけを使う（空なら終日休み。週枠のその日開店分は無視）。
-                for p in periods {
-                    guard p.openMinute >= 0, p.openMinute < 1440,
-                          p.closeMinute > p.openMinute, p.closeMinute <= 2880 else { continue }
-                    append(&raw, calendar: calendar, day: day, openMinute: p.openMinute, closeMinute: p.closeMinute)
-                }
-            } else {
-                let weekday = day.weekdayIndex
-                for p in weekly where p.openDay == weekday {
-                    guard let length = Self.closeOffsetMinutes(p) else { continue }
-                    append(&raw, calendar: calendar, day: day, openMinute: p.openMinute, closeMinute: p.openMinute + length)
-                }
+            for p in openingPeriods(on: day, specialByDay: specialByDay) {
+                append(&raw, calendar: calendar, day: day, openMinute: p.openMinute, closeMinute: p.closeMinute)
             }
         }
         return Self.merged(raw)
