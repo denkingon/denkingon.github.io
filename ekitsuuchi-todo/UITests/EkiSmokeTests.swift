@@ -406,6 +406,8 @@ extension EkiSmokeTests {
         let present: () -> Bool = {
             self.app.cells.containing(titleExact).containing(valueExact).firstMatch.exists
                 || self.app.cells.matching(combined).firstMatch.exists
+                // CI の階層ダンプで確認した実際の形: セルは無名で、中の StaticText が「位置情報、未設定」と 1 本にまとまる。
+                || self.app.staticTexts.matching(combined).firstMatch.exists
                 || (self.app.staticTexts.matching(titleExact).count >= minimumTitles
                     && self.app.staticTexts.matching(valueExact).firstMatch.exists)
         }
