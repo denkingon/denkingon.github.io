@@ -197,7 +197,9 @@ final class ReviewExtraRegistrationTests: XCTestCase {
         XCTAssertEqual(report, RefreshReport(refreshed: 1, failed: [:], skipped: 0))
     }
 
-    /// 2 つの refreshStale が同時に走っても台帳が壊れない（どちらも同じ結果を書く）。
+    /// 2 つの refreshStale が同時に走っても台帳が壊れない。
+    /// 件数は実行の重なり方で決まる: 先に書き終えた側のあとに読んだ側は「更新対象なし」で 0 を返す（macOS ではこちらになる）。
+    /// どちらでも、各回は 0 か 2 で、合計は 2 以上、台帳は全支店が更新済みになる。
     func test同時の更新でも台帳は整合する() async throws {
         let tasks = [TodoTask(store: "ダイソー", item: "x", createdAt: now)]
         let repo = try await LedgerRepository.open(store: InMemoryLedgerStore(Ledger(tasks: tasks, branches: [branch("b1", fetched: nil), branch("b2", fetched: nil)])))
@@ -206,8 +208,10 @@ final class ReviewExtraRegistrationTests: XCTestCase {
         async let a = r.refreshStale()
         async let b = r.refreshStale()
         let (ra, rb) = await (a, b)
-        XCTAssertEqual(ra.refreshed, 2)
-        XCTAssertEqual(rb.refreshed, 2)
+        XCTAssertTrue([0, 2].contains(ra.refreshed), "refreshed=\(ra.refreshed)")
+        XCTAssertTrue([0, 2].contains(rb.refreshed), "refreshed=\(rb.refreshed)")
+        XCTAssertGreaterThanOrEqual(ra.refreshed + rb.refreshed, 2)
+        XCTAssertTrue(ra.failed.isEmpty && rb.failed.isEmpty)
         let ledger = await repo.snapshot()
         XCTAssertEqual(ledger.branches.count, 2)
         XCTAssertTrue(ledger.branches.allSatisfy { $0.hoursFetchedAt == now && $0.hours != nil })

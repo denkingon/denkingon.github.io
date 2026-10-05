@@ -60,10 +60,6 @@ jobs:
           brew install xcodegen
           xcodegen --version
 
-      # Core は macOS でも通す（Foundation の実装差を拾うため）。
-      - name: swift test (Core on macOS)
-        run: swift test
-
       - name: Generate Xcode project
         run: |
           xcodegen generate
@@ -82,6 +78,12 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             2>&1 | tee xcodebuild.log
+
+      # Core は macOS でも通す（Foundation の実装差を拾うため）。
+      # xcodebuild の後ろに置く: テストが落ちても iOS 層のコンパイル結果は先に出る。
+      - name: swift test (Core on macOS)
+        if: always()
+        run: swift test
 
       # ログが数千行でも読めるよう、error/warning だけを末尾に出す。成功したときも警告は見たいので always。
       - name: Summarise xcodebuild warnings and errors
