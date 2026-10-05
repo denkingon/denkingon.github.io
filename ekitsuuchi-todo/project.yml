@@ -72,6 +72,24 @@ targets:
         NSLocationWhenInUseUsageDescription: 使う駅に入った瞬間をバックグラウンドでも検知し、その駅の近くで開いている店のタスクをお知らせするために、位置情報を「常に」使います。
         NSLocationAlwaysAndWhenInUseUsageDescription: 使う駅に入った瞬間をバックグラウンドでも検知し、その駅の近くで開いている店のタスクをお知らせするために、位置情報を「常に」使います。
 
+  # UI テスト（XCUITest）。CI の macOS ジョブが Simulator で実際にアプリを起動して触る（.github/workflows/ekitsuuchi-ci.yml）。
+  # 署名なし（CODE_SIGNING_ALLOWED=NO）・Secrets.xcconfig なし・外部通信なしで通る作り。
+  EkiTsuuchiUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: UITests
+        excludes:
+          - "**/.DS_Store"
+    dependencies:
+      - target: EkiTsuuchi
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.denkingon.ekitsuuchi.uitests
+        TEST_TARGET_NAME: EkiTsuuchi     # 対象のアプリ（XcodeGen も dependencies から補うが明示しておく）
+        GENERATE_INFOPLIST_FILE: "YES"   # テスト用バンドルは Info.plist を自動生成させる（アプリ側は info: から生成）
+
 schemes:
   EkiTsuuchi:
     build:
@@ -83,3 +101,8 @@ schemes:
       config: Release
     archive:
       config: Release
+    # UI テストをスキームのテスト項目に入れる（`xcodebuild test -scheme EkiTsuuchi`）。
+    test:
+      config: Debug
+      targets:
+        - EkiTsuuchiUITests

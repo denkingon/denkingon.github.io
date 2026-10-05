@@ -294,6 +294,8 @@ final class AppModel {
         if env.locationAuthorization == .notDetermined {
             requestLocationAuthorization()
         }
+        // 通知の許可も、まだなら聞く（タスクの追加だけが入口だと、駅だけを入れる実測モードの人は一度も聞かれない）。
+        askNotificationIfNeeded()
 
         let snapshot = await repository.snapshot()
         if snapshot.registeredChains.isEmpty {
@@ -496,6 +498,8 @@ final class AppModel {
 
         let reasons = parsed.rejected.prefix(Self.maxRejectedReasons).map { "\($0.index + 1) 件目: \($0.reason)" }
         registerInBackground(chains: summary.chainsNeedingRegistration)
+        // 取込だけでタスクが入った人（手打ちをしない人）にも通知の許可を聞く。
+        if !summary.added.isEmpty { askNotificationIfNeeded() }
         return finish(ImportFeedback(
             added: summary.added.count,
             duplicates: summary.duplicates,
@@ -528,6 +532,16 @@ final class AppModel {
     func requestNotificationAuthorization() async {
         _ = await env.poster.requestAuthorization()
         await refreshPermissionStates()
+    }
+
+    /// 通知の許可を、まだ聞いていないときだけ聞く（結果は待たない。許可ダイアログは位置情報のダイアログと順に出る）。
+    private func askNotificationIfNeeded() {
+        Task {
+            await self.refreshNotificationStatus()
+            if self.notificationStatus == .notDetermined {
+                await self.requestNotificationAuthorization()
+            }
+        }
     }
 
     func openSystemSettings() {

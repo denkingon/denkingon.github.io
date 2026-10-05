@@ -415,7 +415,7 @@ private struct AddStationSheet: View {
                 Section {
                     searchField
                 } footer: {
-                    Text("駅名の一部でも探せます。選ぶとその駅を登録します。")
+                    Text("駅名の一部でも探せます。選ぶとその駅を登録します。登録した時点ですでに駅の半径の中にいると、いったん出て入り直すまで通知されません。")
                 }
                 resultsSection
             }

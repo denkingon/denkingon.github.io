@@ -96,6 +96,12 @@ final class GeofenceTrigger: NSObject, TriggerSource, CLLocationManagerDelegate,
             return
         }
 
+        // 許可が出る前（未設定・拒否・制限）は領域を登録しない。許可前に登録した領域が有効になる保証が無いので、
+        // 許可が変わったときの再反映（AppEnvironment の onAuthorizationChange → replan）で登録する。
+        // 外す側（下の stopMonitoring）は許可に関係なく進める。
+        let status = LocationAuthorization(manager.authorizationStatus)
+        let canStart = (status == .whenInUse || status == .always)
+
         // 同じ ID が二重に入っていても最後のものを採る（Dictionary(uniqueKeysWithValues:) は重複で落ちる）。
         var wanted: [String: Station] = [:]
         for station in plan.stations {
@@ -114,7 +120,9 @@ final class GeofenceTrigger: NSObject, TriggerSource, CLLocationManagerDelegate,
             alreadyCorrect.insert(circular.identifier)
         }
 
+        // 注意: すでに半径の中にいる状態で登録した領域は、いったん出て入り直すまで入域イベントが来ない（iOS の仕様）。
         for (identifier, station) in wanted where !alreadyCorrect.contains(identifier) {
+            guard canStart else { continue }
             let region = CLCircularRegion(
                 center: CLLocationCoordinate2D(latitude: station.coordinate.latitude, longitude: station.coordinate.longitude),
                 radius: effectiveRadius(for: station),
@@ -126,7 +134,7 @@ final class GeofenceTrigger: NSObject, TriggerSource, CLLocationManagerDelegate,
         }
 
         if plan.tracksSignificantLocationChanges {
-            if CLLocationManager.significantLocationChangeMonitoringAvailable() {
+            if canStart, CLLocationManager.significantLocationChangeMonitoringAvailable() {
                 manager.startMonitoringSignificantLocationChanges()
             }
         } else {

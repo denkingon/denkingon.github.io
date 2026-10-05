@@ -128,7 +128,7 @@ final class AppEnvironment: @unchecked Sendable {
         }
         trigger.onAuthorizationChange = { [weak self] _ in
             guard let self else { return }
-            // 許可が変わったら、計画が同じでも領域を登録し直す（許可前に登録した領域が効いていないことがある）。
+            // 許可が変わったら、計画が同じでも反映し直す（GeofenceTrigger は許可が出るまで領域の登録を見送っている）。
             self.replan(force: true)
             self.notify(.authorizationChanged)
         }
@@ -230,11 +230,13 @@ final class AppEnvironment: @unchecked Sendable {
     /// 入域の経路。台帳が開けなければログだけ残して戻る（落とさない）。
     /// バックグラウンド起動中に判定と通知の投稿が終わる前に一時停止されないよう、時間を借りる。
     func handleTrigger(_ event: TriggerEvent) async {
-        guard let services = await self.services() else {
-            AppLog.location.error("入域を処理できない（台帳が開けない）: \(event.stationID.uuidString, privacy: .public)")
-            return
-        }
+        // 時間の借り入れは台帳を開くのを待つ前から始める。バックグラウンド起動直後は台帳の読み込みも
+        // この猶予の中で走るので、開く前に一時停止されないようにする。
         await withBackgroundTime("station-entry") { () async -> Void in
+            guard let services = await self.services() else {
+                AppLog.location.error("入域を処理できない（台帳が開けない）: \(event.stationID.uuidString, privacy: .public)")
+                return
+            }
             do {
                 // 結果（通知した／抑制した）は台帳の履歴に書かれる。ここでは使わない。
                 _ = try await services.entryHandler.handle(event)
