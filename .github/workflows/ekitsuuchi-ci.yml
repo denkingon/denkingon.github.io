@@ -1,0 +1,320 @@
+# 駅通知todo の CI。
+# iOS 層（ekitsuuchi-todo/App）がコンパイルされるのはこのワークフローの ios-macos ジョブだけ。
+# 結果はジョブログの "Summarise ..." ステップ（error と自分のコードの warning）と、失敗時のアーティファクト xcodebuild.log を見る。
+name: ekitsuuchi-ci
+
+on:
+  push:
+    paths:
+      - 'ekitsuuchi-todo/**'
+      - '.github/workflows/ekitsuuchi-ci.yml'
+  pull_request:
+    paths:
+      - 'ekitsuuchi-todo/**'
+      - '.github/workflows/ekitsuuchi-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ekitsuuchi-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  core-linux:
+    name: Core (Linux, swift test)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container: swift:6.0-noble
+    defaults:
+      run:
+        shell: bash
+        working-directory: ekitsuuchi-todo
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: swift test
+        run: swift test
+
+  # 位置情報の理由文は App Store 審査のテキストとアプリ内の表示で一字一句同じにする（計画書 §2）。
+  # Info.plist の文（project.yml）と PermissionCopy.swift がずれたら落とす。
+  consistency:
+    name: Permission copy matches Info.plist
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare project.yml and PermissionCopy.swift
+        run: |
+          python3 - <<'PY'
+          import re, sys
+          yml = open('ekitsuuchi-todo/project.yml', encoding='utf-8').read()
+          swift = open('ekitsuuchi-todo/App/Model/PermissionCopy.swift', encoding='utf-8').read()
+          def plist(key):
+              m = re.search(r'^\s*' + key + r':\s*(.+?)\s*$', yml, re.M)
+              return m.group(1) if m else None
+          def swiftstr(name):
+              m = re.search(r'static let ' + name + r'\s*=\s*"([^"\n]*)"', swift)
+              return m.group(1) if m else None
+          pairs = [
+              ('NSLocationAlwaysAndWhenInUseUsageDescription', 'locationReason'),
+              ('NSLocationWhenInUseUsageDescription', 'whenInUseReason'),
+          ]
+          bad = 0
+          for key, name in pairs:
+              a, b = plist(key), swiftstr(name)
+              if a is None or b is None:
+                  print(f'MISSING: {key} in project.yml={a is not None}, PermissionCopy.{name}={b is not None}')
+                  bad += 1
+              elif a != b:
+                  print(f'MISMATCH {key} vs PermissionCopy.{name}:\n  project.yml: {a}\n  swift      : {b}')
+                  bad += 1
+              else:
+                  print(f'ok: {key} == PermissionCopy.{name}')
+          sys.exit(1 if bad else 0)
+          PY
+
+  ios-macos:
+    name: iOS app (macOS, xcodebuild + UI tests)
+    runs-on: macos-15
+    timeout-minutes: 80
+    defaults:
+      run:
+        shell: bash
+        working-directory: ekitsuuchi-todo
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          xcodebuild -showsdks | grep -i simulator || true
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate Xcode project
+        run: |
+          xcodegen generate
+          echo "--- generated Info.plist ---"
+          cat App/Resources/Info.plist
+
+      # 鍵なし・署名なしでビルドだけ通す。全ログを xcodebuild.log に残す。
+      - name: xcodebuild build (iOS Simulator)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project EkiTsuuchi.xcodeproj \
+            -scheme EkiTsuuchi \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            2>&1 | tee xcodebuild.log
+
+      # ---- UI テスト（XCUITest）: Simulator で実際にアプリを起動して触る ----
+      # 起動順: 機種を動的に選ぶ → 起動 → xcodebuild test → スクショを書き出して常にアップロード。
+      # どの段にも有限のタイムアウトを付けてある（Simulator が固まっても CI を止めない）。
+      - name: Pick an iPhone simulator
+        id: sim
+        timeout-minutes: 5
+        run: |
+          xcrun simctl list devices available
+          python3 - <<'PY'
+          import json, os, re, subprocess, sys
+
+          raw = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"])
+          devices = json.loads(raw)["devices"]
+
+          def version(runtime):
+              # com.apple.CoreSimulator.SimRuntime.iOS-18-2 -> (18, 2)
+              m = re.search(r"SimRuntime\.iOS-(\d+(?:-\d+)*)$", runtime)
+              return tuple(int(x) for x in m.group(1).split("-")) if m else None
+
+          runtimes = []
+          for runtime, items in devices.items():
+              v = version(runtime)
+              if v is None or v < (17, 0):      # アプリの最低バージョンは iOS 17.0
+                  continue
+              phones = [d for d in items if d.get("isAvailable", True) and d["name"].startswith("iPhone")]
+              if phones:
+                  runtimes.append((v, runtime, phones))
+          if not runtimes:
+              print("No available iPhone simulator with iOS >= 17 was found.", file=sys.stderr)
+              sys.exit(1)
+
+          runtimes.sort(key=lambda r: r[0])
+          v, runtime, phones = runtimes[-1]       # 最新の iOS ランタイム
+
+          def rank(d):
+              # 素の番号つきモデル（"iPhone 16"）を優先し、SE / Plus / Pro Max / mini などは後ろへ。
+              name = d["name"]
+              plain = re.fullmatch(r"iPhone (\d+)", name)
+              return (1 if plain else 0, int(plain.group(1)) if plain else 0, name)
+
+          phones.sort(key=rank)
+          chosen = phones[-1]
+          print(f"Chosen: {chosen['name']} ({chosen['udid']}) on {runtime}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"udid={chosen['udid']}\n")
+              out.write(f"name={chosen['name']}\n")
+          PY
+
+      - name: Boot simulator
+        timeout-minutes: 10
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          # ソフトウェアキーボードを使う（ハードウェアキーボード接続だと XCUIElement.typeText が失敗することがある）。
+          defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false || true
+          xcrun simctl boot "$UDID" || true      # すでに起動済みでもよい
+          xcrun simctl bootstatus "$UDID" -b     # 起動完了まで待つ（上のステップのタイムアウトが上限）
+          # 初回キーボードの紹介・自動修正・予測変換でテストの入力が邪魔されないようにする（効かなくてもテストは続ける）。
+          for key in DidShowContinuousPathIntroduction DidShowGestureKeyboardIntroduction; do
+            xcrun simctl spawn "$UDID" defaults write com.apple.keyboard.preferences "$key" -bool true || true
+          done
+          for key in KeyboardAutocorrection KeyboardPrediction KeyboardCapsLock; do
+            xcrun simctl spawn "$UDID" defaults write com.apple.keyboard.preferences "$key" -bool false || true
+          done
+          xcrun simctl list devices | grep -F "$UDID" || true
+
+      # 鍵なし・署名なし。テストは外部通信に依存しない（MKLocalSearch / Places を使わない）。
+      # Xcode 側のタイムアウト: 1 テスト 5 分（最大 10 分）。全体はステップの timeout-minutes が上限。
+      - name: xcodebuild test (UI tests on Simulator)
+        timeout-minutes: 35
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set -o pipefail
+          rm -rf ui.xcresult ui-shots
+          xcodebuild test \
+            -project EkiTsuuchi.xcodeproj \
+            -scheme EkiTsuuchi \
+            -destination "id=$UDID" \
+            -configuration Debug \
+            -resultBundlePath ui.xcresult \
+            -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 300 \
+            -maximum-test-execution-time-allowance 600 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            2>&1 | tee xcodebuild-test.log
+
+      # スクリーンショット（XCTAttachment）を .xcresult から取り出す。テストが落ちても出す（always）。
+      # Xcode 16 の `xcresulttool export attachments` は <uuid>.png と manifest.json を出力先に書く。
+      # manifest の suggestedHumanReadableName を使って、読みやすい名前に付け替える（失敗しても無害）。
+      # 取り出せなかったときのために .xcresult そのものも別アーティファクトで上げる。
+      - name: Export UI test screenshots
+        if: always()
+        timeout-minutes: 10
+        run: |
+          if [ ! -d ui.xcresult ]; then
+            echo "ui.xcresult was not produced (the test step did not start)."
+            exit 0
+          fi
+          mkdir -p ui-shots
+          xcrun xcresulttool export attachments --path ui.xcresult --output-path ui-shots \
+            || echo "xcresulttool export attachments failed; the .xcresult artifact still has everything."
+          python3 - <<'PY' || true
+          import json, os, re, shutil
+          root = "ui-shots"
+          manifest = os.path.join(root, "manifest.json")
+          if not os.path.exists(manifest):
+              raise SystemExit("no manifest.json (leaving files as exported)")
+          renamed = 0
+          for entry in json.load(open(manifest)):
+              test = re.sub(r"[^A-Za-z0-9_.-]+", "_", entry.get("testIdentifier", "test"))
+              for att in entry.get("attachments", []):
+                  src = os.path.join(root, att.get("exportedFileName", ""))
+                  if not os.path.isfile(src):
+                      continue
+                  base = att.get("suggestedHumanReadableName") or att.get("exportedFileName")
+                  ext = os.path.splitext(src)[1]
+                  base = re.sub(r"_\d+_[0-9A-Fa-f-]{36}$", "", os.path.splitext(base)[0])
+                  base = re.sub(r"[^A-Za-z0-9_.-]+", "_", base)
+                  failed = "FAILED_" if att.get("isAssociatedWithFailure") else ""
+                  dst = os.path.join(root, f"{test}__{failed}{base}{ext}")
+                  if not os.path.exists(dst):
+                      shutil.move(src, dst)
+                      renamed += 1
+          print(f"renamed {renamed} attachment(s)")
+          PY
+          echo "--- exported files ---"
+          ls -1 ui-shots | head -100
+
+      - name: Upload UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots
+          path: ekitsuuchi-todo/ui-shots
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload UI test result bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-xcresult
+          path: ekitsuuchi-todo/ui.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload xcodebuild test log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-test-log
+          path: ekitsuuchi-todo/xcodebuild-test.log
+          if-no-files-found: ignore
+
+      # Core は macOS でも通す（Foundation の実装差を拾うため）。
+      # xcodebuild の後ろに置く: テストが落ちても iOS 層のコンパイル結果は先に出る。
+      - name: swift test (Core on macOS)
+        if: always()
+        run: swift test
+
+      # ログが数千行でも読めるよう、error/warning だけを末尾に出す。成功したときも警告は見たいので always。
+      - name: Summarise xcodebuild warnings, errors and UI test failures
+        if: always()
+        run: |
+          if [ -f xcodebuild.log ]; then
+            echo "===== error: (unique) ====="
+            grep -E "error:" xcodebuild.log | sort -u | head -150 || true
+            echo "===== warning: (unique, first 150; project sources only) ====="
+            grep -E "ekitsuuchi-todo/(App|Sources)/.*warning:" xcodebuild.log | sort -u | head -150 || true
+            if [ "${{ job.status }}" != "success" ]; then
+              echo "===== last 40 lines ====="
+              tail -n 40 xcodebuild.log
+            fi
+          else
+            echo "xcodebuild.log was not produced (failure happened before the build step)."
+          fi
+
+          # UI テスト: 落ちたテスト名・アサーション（日本語のメッセージ付き）を拾う。
+          if [ -f xcodebuild-test.log ]; then
+            echo "===== UI tests: result lines ====="
+            grep -E "Test Case .* (passed|failed)|Executed [0-9]+ tests" xcodebuild-test.log | sort -u | head -60 || true
+            echo "===== UI tests: failures (Test Case .* failed | error: | XCTAssert) ====="
+            grep -E "Test Case .* failed|error:|XCTAssert" xcodebuild-test.log | sort -u | head -150 || true
+            if [ -d ui.xcresult ]; then
+              echo "===== UI tests: xcresult summary ====="
+              xcrun xcresulttool get test-results summary --path ui.xcresult 2>&1 | head -150 || true
+            fi
+          else
+            echo "xcodebuild-test.log was not produced (the UI test step did not run)."
+          fi
+
+      - name: Upload xcodebuild.log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: ekitsuuchi-todo/xcodebuild.log
+          if-no-files-found: ignore

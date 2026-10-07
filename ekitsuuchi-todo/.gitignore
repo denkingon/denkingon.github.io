@@ -1,0 +1,16 @@
+# SwiftPM / Xcode
+.build/
+.swiftpm/
+*.xcodeproj/
+# XcodeGen が project.yml から生成する
+App/Resources/Info.plist
+xcodebuild.log
+.DS_Store
+xcuserdata/
+DerivedData/
+# API key lives here, never in git (see Config/Secrets.xcconfig.example)
+Config/Secrets.xcconfig
+# UI テストの生成物（CI が作る）
+ui.xcresult
+ui-shots/
+xcodebuild-test.log
