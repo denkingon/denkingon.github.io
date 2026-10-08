@@ -40,13 +40,20 @@ cat <<'EOF'
 プロジェクトを生成しました: EkiTsuuchi.xcodeproj
 
 あとは手作業です:
-  1. Config/Secrets.xcconfig を開き、PLACES_API_KEY に Google Places API (New) の鍵を入れる
-     （鍵は Google Cloud で「iOS アプリ: dev.denkingon.ekitsuuchi」と「Places API (New) のみ」に制限する）。
+  1. Config/Secrets.xcconfig を開き、DEVELOPMENT_TEAM に署名の Team ID（10桁）を書く
+     （Xcode > Settings > Accounts のチーム。無料の Personal Team でも実機に入ります。7日で失効）。
+     ここに書けば `xcodegen generate` をやり直しても消えません（Xcode の画面で選んだ Team は再生成で消えます）。
+     PLACES_API_KEY は M2（店・営業時間）から要ります。M1（駅→通知の実測）の間は空のままで構いません。
+     M2 で鍵を作るときは Google Cloud で「iOS アプリ: dev.denkingon.ekitsuuchi」と「Places API (New) のみ」に制限する。
      鍵を変えたら `xcodegen generate` は不要、Xcode で再ビルドすれば反映されます。
-  2. open EkiTsuuchi.xcodeproj
-     → EkiTsuuchi ターゲット > Signing & Capabilities > Team に自分の Apple ID（Personal Team）を選ぶ
-     （project.yml の DEVELOPMENT_TEAM は個人情報を避けて空のままです）。
-  3. iPhone をつなぎ、実機を選んで Run。初回は 設定 > 一般 > VPNとデバイス管理 で開発元を信頼。
-  4. アプリの初回起動で、位置情報「常に」と通知を許可する。
+  2. open EkiTsuuchi.xcodeproj → iPhone をつなぎ、実機を選んで Run。
+     初回は iPhone の 設定 > 一般 > VPNとデバイス管理 で開発元を信頼。
+  3. M1 の始め方（鍵もタスクも要りません）:
+       「駅」タブ →「駅を追加」で使う駅を足す（位置情報は「Appの使用中は許可」。そのあと iPhone の
+       設定アプリ > 駅通知todo > 位置情報 で「常に」と「正確な位置情報」オン）
+       →「設定」タブで「実測モード」をオン（通知を許可）
+       → 登録した駅の中にいる状態では入域は出ないので、一度外に出て入り直す
+       → 1週間普段どおり移動して、「履歴」タブで発火の位置と時刻を見る。
      ジオフェンスは実機でしか確認できません（シミュレータでは駅入域の実測ができない）。
+  詳しくは README.md の「段階ごとの使い方」。
 EOF
